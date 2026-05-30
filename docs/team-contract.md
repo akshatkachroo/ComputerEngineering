@@ -2,15 +2,15 @@
 
 ## Roles
 
-- XXX is our team lead, and is responsible for coordinating the project.
-- XXX leads the [front-end/back-end/both] design [for YYY module(s)].
-- XXX leads the integration and end-to-end testing of the app. 
-- XXX leads the design and maintenance of the database.
+- Eric is our team lead, and is responsible for coordinating the project.
+- Daniel and Akshat leads the [front-end/back-end/both] design.
+- Nidhi and Ryan leads the integration and end-to-end testing of the app.
+- James leads the design and maintenance of the database.
 
 ## Communication
 
 - Our team will use Discord group chat to communicate project-related matters.
-- We will meet every week at XXX.
+- We will meet every week on Monday.
 
 ## Meetings
 
@@ -22,5 +22,5 @@
 - Decisions can be made during meetings even some members are absent.
 - Each member will take turns listening as well as talking, and active listening will be a strategy for all group discussions.
 
-- XXX will post the agenda for the week in our group chat each Monday.
-- XXX will take notes during all meetings.
+- Eric will post the agenda for the week in our group chat each Monday.
+- James will take notes during all meetings.
