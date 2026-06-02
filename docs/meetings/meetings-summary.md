@@ -11,9 +11,9 @@ meeting minutes: 70 minutes
 - brainstorming risks and constraints related to sensor‑first audio capture and offline operation
   
 The team drafted the initial project proposal, where:
--Daniel outlined the problem statement and enterprise use cases
--Akshat drafted the technical overview and offline‑first design
--Eric created early UI sketches and user flow diagrams
+- Daniel outlined the problem statement and enterprise use cases
+- Akshat drafted the technical overview and offline‑first design
+- Eric created early UI sketches and user flow diagrams
 
 The team created the initial repository structure and documentation skeleton.
 
