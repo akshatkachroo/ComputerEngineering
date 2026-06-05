@@ -1,5 +1,3 @@
-# ScribeSync — Meeting Minutes
-
 **Date:** June 1st, 2026
 **Time:** 8:00 PM – 9:00 PM (EST)  
 **Location:** Discord
