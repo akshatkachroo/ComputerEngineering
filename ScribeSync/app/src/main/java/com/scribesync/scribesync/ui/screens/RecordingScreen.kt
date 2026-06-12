@@ -1,4 +1,4 @@
-package com.scribsync.scribsync.ui.screens
+package com.scribesync.scribesync.ui.screens
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -53,7 +53,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import com.scribsync.scribsync.data.TranscriptEntry
+import com.scribesync.scribesync.data.TranscriptEntry
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)

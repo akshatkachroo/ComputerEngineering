@@ -1,11 +1,11 @@
-package com.scribsync.scribsync.navigation
+package com.scribesync.scribesync.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.scribsync.scribsync.ui.screens.HomeScreen
-import com.scribsync.scribsync.ui.screens.RecordingScreen
+import com.scribesync.scribesync.ui.screens.HomeScreen
+import com.scribesync.scribesync.ui.screens.RecordingScreen
 
 sealed class Screen(val route: String) {
     object Home : Screen("home")

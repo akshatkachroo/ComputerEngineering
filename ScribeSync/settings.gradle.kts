@@ -20,4 +20,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "ScribeSync"
-include(":app")
+include(":scribesync")
+project(":scribesync").projectDir = file("app")

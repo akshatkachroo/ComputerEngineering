@@ -1,4 +1,4 @@
-package com.scribsync.scribsync.ui.theme
+package com.scribesync.scribesync.ui.theme
 
 import android.app.Activity
 import android.os.Build

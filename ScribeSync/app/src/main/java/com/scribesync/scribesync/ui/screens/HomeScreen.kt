@@ -1,4 +1,4 @@
-package com.scribsync.scribsync.ui.screens
+package com.scribesync.scribesync.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -30,7 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.scribsync.scribsync.data.Meeting
+import com.scribesync.scribesync.data.Meeting
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale

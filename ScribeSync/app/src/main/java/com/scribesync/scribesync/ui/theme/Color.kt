@@ -1,4 +1,4 @@
-package com.scribsync.scribsync.ui.theme
+package com.scribesync.scribesync.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

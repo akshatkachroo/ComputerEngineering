@@ -1,4 +1,4 @@
-package com.scribsync.scribsync.data
+package com.scribesync.scribesync.data
 
 import java.util.Date
 import java.util.UUID

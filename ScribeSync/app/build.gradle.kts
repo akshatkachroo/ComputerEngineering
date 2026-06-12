@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.scribsync.scribsync"
+    namespace = "com.scribesync.scribesync"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.scribsync.scribsync"
+        applicationId = "com.scribesync.scribesync"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

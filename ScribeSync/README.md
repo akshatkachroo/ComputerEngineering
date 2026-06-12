@@ -67,7 +67,7 @@ The output APK is at `app/build/outputs/apk/debug/app-debug.apk`.
 
 ```
 ScribeSync/
-├── app/src/main/java/com/scribsync/scribsync/
+├── app/src/main/java/com/scribesync/scribesync/
 │   ├── MainActivity.kt          # Entry point, edge-to-edge setup
 │   ├── data/
 │   │   └── Meeting.kt           # Core data models (Meeting, TranscriptEntry)
