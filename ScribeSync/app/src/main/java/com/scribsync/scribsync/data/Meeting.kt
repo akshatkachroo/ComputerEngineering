@@ -8,8 +8,14 @@ data class Meeting(
     val title: String,
     val date: Date = Date(),
     val durationSeconds: Int = 0,
-    val transcriptPreview: String = ""
-)
+    val transcriptEntries: List<TranscriptEntry> = emptyList()
+) {
+    val transcriptPreview: String
+        get() = transcriptEntries.firstOrNull()?.text?.take(120) ?: ""
+
+    val speakerCount: Int
+        get() = transcriptEntries.map { it.speakerLabel }.distinct().size
+}
 
 data class TranscriptEntry(
     val speakerLabel: String,

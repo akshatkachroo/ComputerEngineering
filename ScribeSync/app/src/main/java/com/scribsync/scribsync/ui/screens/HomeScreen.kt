@@ -31,19 +31,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.scribsync.scribsync.data.Meeting
+import com.scribsync.scribsync.data.MockData
 import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
-
-private val sampleMeetings = listOf(
-    Meeting(title = "Q2 Planning Session", date = Date(), durationSeconds = 3612, transcriptPreview = "Let's start with the roadmap for next quarter. I think the mobile initiative should take priority..."),
-    Meeting(title = "Sprint Retrospective", date = Date(), durationSeconds = 1847, transcriptPreview = "What went well this sprint? The deployment pipeline improvements really paid off this week."),
-    Meeting(title = "Design Review", date = Date(), durationSeconds = 2703, transcriptPreview = "Looking at the mockups, the navigation flow needs some rethinking for the tablet layout.")
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(onStartRecording: () -> Unit) {
+fun HomeScreen(
+    onStartRecording: () -> Unit,
+    onMeetingClick: (String) -> Unit
+) {
+    val meetings = MockData.meetings
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -67,7 +66,7 @@ fun HomeScreen(onStartRecording: () -> Unit) {
             )
         }
     ) { padding ->
-        if (sampleMeetings.isEmpty()) {
+        if (meetings.isEmpty()) {
             EmptyState(modifier = Modifier.padding(padding))
         } else {
             LazyColumn(
@@ -75,8 +74,16 @@ fun HomeScreen(onStartRecording: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.padding(padding)
             ) {
-                items(sampleMeetings) { meeting ->
-                    MeetingCard(meeting = meeting)
+                item {
+                    Text(
+                        "Recordings",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                }
+                items(meetings) { meeting ->
+                    MeetingCard(meeting = meeting, onClick = { onMeetingClick(meeting.id) })
                 }
             }
         }
@@ -84,10 +91,11 @@ fun HomeScreen(onStartRecording: () -> Unit) {
 }
 
 @Composable
-private fun MeetingCard(meeting: Meeting) {
-    val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+private fun MeetingCard(meeting: Meeting, onClick: () -> Unit) {
+    val dateFormat = SimpleDateFormat("MMM d, yyyy · h:mm a", Locale.getDefault())
 
     Card(
+        onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
@@ -111,11 +119,24 @@ private fun MeetingCard(meeting: Meeting) {
                 )
             }
             Spacer(Modifier.height(4.dp))
-            Text(
-                dateFormat.format(meeting.date),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    dateFormat.format(meeting.date),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+                if (meeting.speakerCount > 0) {
+                    Text("·", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outlineVariant)
+                    Text(
+                        "${meeting.speakerCount} speaker${if (meeting.speakerCount != 1) "s" else ""}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+            }
             if (meeting.transcriptPreview.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
