@@ -6,6 +6,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.scribesync.scribesync.ui.screens.HomeScreen
 import com.scribesync.scribesync.ui.screens.RecordingScreen
+import com.scribesync.scribesync.ui.viewmodel.MeetingViewModel
 
 sealed class Screen(val route: String) {
     object Home : Screen("home")
@@ -13,14 +14,20 @@ sealed class Screen(val route: String) {
 }
 
 @Composable
-fun NavGraph() {
+fun NavGraph(viewModel: MeetingViewModel) {
     val navController = rememberNavController()
     NavHost(navController = navController, startDestination = Screen.Home.route) {
         composable(Screen.Home.route) {
-            HomeScreen(onStartRecording = { navController.navigate(Screen.Recording.route) })
+            HomeScreen(
+                viewModel = viewModel,
+                onStartRecording = { navController.navigate(Screen.Recording.route) }
+            )
         }
         composable(Screen.Recording.route) {
-            RecordingScreen(onStopRecording = { navController.popBackStack() })
+            RecordingScreen(
+                viewModel = viewModel,
+                onStopRecording = { navController.popBackStack() }
+            )
         }
     }
 }

@@ -40,9 +40,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -54,11 +54,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.scribesync.scribesync.data.TranscriptEntry
+import com.scribesync.scribesync.ui.viewmodel.MeetingViewModel
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RecordingScreen(onStopRecording: () -> Unit) {
+fun RecordingScreen(
+    viewModel: MeetingViewModel,
+    onStopRecording: () -> Unit
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    val transcriptEntries by viewModel.transcript.collectAsState()
+    
     val context = LocalContext.current
     var hasAudioPermission by remember {
         mutableStateOf(
@@ -79,7 +86,10 @@ fun RecordingScreen(onStopRecording: () -> Unit) {
     var isRecording by remember { mutableStateOf(false) }
 
     LaunchedEffect(hasAudioPermission) {
-        isRecording = hasAudioPermission
+        if (hasAudioPermission) {
+            isRecording = true
+            viewModel.startMeeting("New Meeting")
+        }
     }
 
     LaunchedEffect(isRecording) {
@@ -89,12 +99,6 @@ fun RecordingScreen(onStopRecording: () -> Unit) {
         }
     }
 
-    val transcriptEntries = remember {
-        mutableStateListOf(
-            TranscriptEntry("Speaker 1", "ScribeSync is now actively listening and transcribing your meeting."),
-            TranscriptEntry("Speaker 2", "On-device processing keeps your conversation completely private and secure.")
-        )
-    }
     val listState = rememberLazyListState()
 
     LaunchedEffect(transcriptEntries.size) {
@@ -110,6 +114,7 @@ fun RecordingScreen(onStopRecording: () -> Unit) {
                 actions = {
                     TextButton(onClick = {
                         isRecording = false
+                        viewModel.stopMeeting()
                         onStopRecording()
                     }) {
                         Icon(Icons.Default.Stop, contentDescription = "Stop", tint = MaterialTheme.colorScheme.error)
@@ -130,6 +135,14 @@ fun RecordingScreen(onStopRecording: () -> Unit) {
         ) {
             RecordingStatusHeader(elapsedSeconds = elapsedSeconds, isRecording = isRecording)
             HorizontalDivider()
+            
+            // Show current state overlay if needed
+            if (uiState != MeetingViewModel.MeetingUiState.ActiveRecording && isRecording) {
+                Box(modifier = Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
+                    Text(uiState.toString(), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+
             if (!hasAudioPermission) {
                 PermissionDeniedMessage(modifier = Modifier.weight(1f))
             } else {

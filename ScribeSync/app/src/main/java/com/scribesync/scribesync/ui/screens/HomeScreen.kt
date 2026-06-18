@@ -26,24 +26,22 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.scribesync.scribesync.data.Meeting
+import com.scribesync.scribesync.ui.viewmodel.MeetingViewModel
 import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
-
-private val sampleMeetings = listOf(
-    Meeting(title = "Q2 Planning Session", date = Date(), durationSeconds = 3612, transcriptPreview = "Let's start with the roadmap for next quarter. I think the mobile initiative should take priority..."),
-    Meeting(title = "Sprint Retrospective", date = Date(), durationSeconds = 1847, transcriptPreview = "What went well this sprint? The deployment pipeline improvements really paid off this week."),
-    Meeting(title = "Design Review", date = Date(), durationSeconds = 2703, transcriptPreview = "Looking at the mockups, the navigation flow needs some rethinking for the tablet layout.")
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(onStartRecording: () -> Unit) {
+fun HomeScreen(viewModel: MeetingViewModel, onStartRecording: () -> Unit) {
+    val meetings by viewModel.repository.allMeetings.collectAsState(initial = emptyList())
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -67,7 +65,7 @@ fun HomeScreen(onStartRecording: () -> Unit) {
             )
         }
     ) { padding ->
-        if (sampleMeetings.isEmpty()) {
+        if (meetings.isEmpty()) {
             EmptyState(modifier = Modifier.padding(padding))
         } else {
             LazyColumn(
@@ -75,7 +73,7 @@ fun HomeScreen(onStartRecording: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.padding(padding)
             ) {
-                items(sampleMeetings) { meeting ->
+                items(meetings) { meeting ->
                     MeetingCard(meeting = meeting)
                 }
             }
@@ -111,11 +109,21 @@ private fun MeetingCard(meeting: Meeting) {
                 )
             }
             Spacer(Modifier.height(4.dp))
-            Text(
-                dateFormat.format(meeting.date),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    dateFormat.format(meeting.date),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+                if (meeting.isSynced) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Cloud Synced",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
             if (meeting.transcriptPreview.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
