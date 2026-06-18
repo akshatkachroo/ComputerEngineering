@@ -88,6 +88,7 @@ fun RecordingScreen(
     LaunchedEffect(hasAudioPermission) {
         if (hasAudioPermission) {
             isRecording = true
+            // The startMeeting method logic was updated to use internal audioDataFlow
             viewModel.startMeeting("New Meeting")
         }
     }

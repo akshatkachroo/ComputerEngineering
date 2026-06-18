@@ -32,4 +32,7 @@ class ScribeSyncApplication : Application() {
     val whisperEngine by lazy { WhisperEngine() }
     val locationHelper by lazy { LocationHelper(this) }
     val networkObserver by lazy { NetworkObserver(this) }
+    
+    // Global flow to share audio data from service to viewmodel
+    val audioDataFlow = kotlinx.coroutines.flow.MutableSharedFlow<FloatArray>(extraBufferCapacity = 64)
 }

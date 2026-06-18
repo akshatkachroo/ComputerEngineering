@@ -14,7 +14,9 @@ import com.scribesync.scribesync.engine.WhisperEngine
 import com.scribesync.scribesync.util.LocationHelper
 import com.scribesync.scribesync.util.NetworkObserver
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -24,7 +26,8 @@ class MeetingViewModel(
     val repository: TranscriptRepository,
     private val whisperEngine: WhisperEngine,
     private val locationHelper: LocationHelper,
-    private val networkObserver: NetworkObserver
+    private val networkObserver: NetworkObserver,
+    private val audioDataFlow: SharedFlow<FloatArray>
 ) : ViewModel() {
 
     companion object {
@@ -35,7 +38,8 @@ class MeetingViewModel(
                     repository = application.repository,
                     whisperEngine = application.whisperEngine,
                     locationHelper = application.locationHelper,
-                    networkObserver = application.networkObserver
+                    networkObserver = application.networkObserver,
+                    audioDataFlow = application.audioDataFlow
                 )
             }
         }
@@ -49,6 +53,7 @@ class MeetingViewModel(
 
     private var currentMeetingId: String? = null
     private var nativeContextPtr: Long = 0
+    private var transcriptionJob: Job? = null
 
     init {
         observeNetwork()
@@ -65,20 +70,55 @@ class MeetingViewModel(
                 longitude = location?.second,
                 isSynced = false
             )
-            currentMeetingId = newMeeting.id
+            val meetingId = newMeeting.id
+            currentMeetingId = meetingId
             repository.saveMeeting(newMeeting)
 
             // Initialize whisper engine on background thread
             launch(Dispatchers.Default) {
                 // In real app, model path would be from assets
-                nativeContextPtr = whisperEngine.initContext("path/to/model")
+                nativeContextPtr = whisperEngine.initContext("models/your_model.bin")
+                
+                if (nativeContextPtr != 0L) {
+                    // Start consuming audio data and transcribing in real-time
+                    transcriptionJob = launch {
+                        audioDataFlow.collect { audioData ->
+                            val segments = whisperEngine.transcribeSegments(nativeContextPtr, audioData)
+                            if (segments.isNotEmpty()) {
+                                processSegments(meetingId, segments)
+                            }
+                        }
+                    }
+                }
             }
         }
+    }
+
+    private suspend fun processSegments(meetingId: String, segments: List<WhisperEngine.Segment>) {
+        val entries = segments.map { segment ->
+            TranscriptEntry(
+                meetingId = meetingId,
+                speakerLabel = "Speaker ${segment.speakerId}",
+                text = segment.text,
+                timestampMs = segment.t0,
+                isSynced = false
+            )
+        }
+        
+        // Update UI stream
+        _transcript.value = _transcript.value + entries
+        
+        // Save to Room for persistence and later cloud sync
+        entries.forEach { repository.saveTranscriptEntry(it) }
     }
 
     fun stopMeeting() {
         viewModelScope.launch {
             _uiState.value = MeetingUiState.ProcessingDiarization
+            
+            transcriptionJob?.cancel()
+            transcriptionJob = null
+
             // Logic to finalize transcript and free native memory
             if (nativeContextPtr != 0L) {
                 whisperEngine.freeContext(nativeContextPtr)

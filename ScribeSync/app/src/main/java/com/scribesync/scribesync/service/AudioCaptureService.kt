@@ -13,6 +13,7 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import com.scribesync.scribesync.ScribeSyncApplication
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -78,6 +79,8 @@ class AudioCaptureService : Service() {
                 if (readResult > 0) {
                     val floatBuffer = FloatArray(readResult) { buffer[it].toFloat() / Short.MAX_VALUE }
                     _audioDataFlow.emit(floatBuffer)
+                    // Also emit to the global application flow for the ViewModel
+                    (application as ScribeSyncApplication).audioDataFlow.emit(floatBuffer)
                 }
             }
         }
