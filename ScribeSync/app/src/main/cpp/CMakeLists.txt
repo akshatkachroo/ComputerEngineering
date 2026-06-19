@@ -12,6 +12,9 @@ target_include_directories(scribesync PRIVATE
 
 find_library(log-lib log)
 
+# For Android 15+ 16 KB page size support
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
+
 target_link_libraries(scribesync
     ${log-lib}
 )

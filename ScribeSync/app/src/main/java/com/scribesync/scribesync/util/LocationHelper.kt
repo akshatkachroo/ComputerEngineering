@@ -6,6 +6,7 @@ import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 
 class LocationHelper(context: Context) {
     private val fusedLocationClient: FusedLocationProviderClient =
@@ -14,10 +15,12 @@ class LocationHelper(context: Context) {
     @SuppressLint("MissingPermission")
     suspend fun getCurrentLocation(): Pair<Double, Double>? {
         return try {
-            val location = fusedLocationClient.getCurrentLocation(
-                Priority.PRIORITY_BALANCED_POWER_ACCURACY,
-                null
-            ).await()
+            val location = withTimeoutOrNull(5000) {
+                fusedLocationClient.getCurrentLocation(
+                    Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+                    null
+                ).await()
+            } ?: fusedLocationClient.lastLocation.await()
             
             location?.let {
                 Pair(it.latitude, it.longitude)

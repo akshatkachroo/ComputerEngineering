@@ -61,6 +61,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun RecordingScreen(
     viewModel: MeetingViewModel,
+    meetingTitle: String,
     onStopRecording: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -88,8 +89,7 @@ fun RecordingScreen(
     LaunchedEffect(hasAudioPermission) {
         if (hasAudioPermission) {
             isRecording = true
-            // The startMeeting method logic was updated to use internal audioDataFlow
-            viewModel.startMeeting("New Meeting")
+            viewModel.startMeeting(meetingTitle)
         }
     }
 
@@ -111,7 +111,7 @@ fun RecordingScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Recording", fontWeight = FontWeight.Bold) },
+                title = { Text(meetingTitle, fontWeight = FontWeight.Bold) },
                 actions = {
                     TextButton(onClick = {
                         isRecording = false

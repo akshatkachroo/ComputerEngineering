@@ -1,6 +1,8 @@
 package com.scribesync.scribesync.ui.viewmodel
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import android.content.Intent
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -11,6 +13,7 @@ import com.scribesync.scribesync.data.Meeting
 import com.scribesync.scribesync.data.TranscriptEntry
 import com.scribesync.scribesync.data.TranscriptRepository
 import com.scribesync.scribesync.engine.WhisperEngine
+import com.scribesync.scribesync.service.AudioCaptureService
 import com.scribesync.scribesync.util.LocationHelper
 import com.scribesync.scribesync.util.NetworkObserver
 import kotlinx.coroutines.Dispatchers
@@ -23,18 +26,20 @@ import kotlinx.coroutines.launch
 import java.util.Date
 
 class MeetingViewModel(
+    application: Application,
     val repository: TranscriptRepository,
     private val whisperEngine: WhisperEngine,
     private val locationHelper: LocationHelper,
     private val networkObserver: NetworkObserver,
     private val audioDataFlow: SharedFlow<FloatArray>
-) : ViewModel() {
+) : AndroidViewModel(application) {
 
     companion object {
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 val application = (this[APPLICATION_KEY] as ScribeSyncApplication)
                 MeetingViewModel(
+                    application = application,
                     repository = application.repository,
                     whisperEngine = application.whisperEngine,
                     locationHelper = application.locationHelper,
@@ -54,33 +59,53 @@ class MeetingViewModel(
     private var currentMeetingId: String? = null
     private var nativeContextPtr: Long = 0
     private var transcriptionJob: Job? = null
+    private var startTime: Long = 0
 
     init {
-        observeNetwork()
+        viewModelScope.launch(Dispatchers.IO) {
+            networkObserver.networkStatus.collect { status ->
+                if (status == NetworkObserver.Status.Available) {
+                    launch { repository.syncMeetingsToCloud() }
+                    launch { repository.syncTranscriptsToCloud() }
+                }
+            }
+        }
     }
 
     fun startMeeting(title: String) {
+        _uiState.value = MeetingUiState.ActiveRecording
+        _transcript.value = emptyList()
+        startTime = System.currentTimeMillis()
+
+        val intent = Intent(getApplication(), AudioCaptureService::class.java)
+        getApplication<Application>().startForegroundService(intent)
+
         viewModelScope.launch {
-            _uiState.value = MeetingUiState.ActiveRecording
-            val location = locationHelper.getCurrentLocation()
             val newMeeting = Meeting(
                 title = title,
                 date = Date(),
-                latitude = location?.first,
-                longitude = location?.second,
                 isSynced = false
             )
             val meetingId = newMeeting.id
             currentMeetingId = meetingId
             repository.saveMeeting(newMeeting)
 
-            // Initialize whisper engine on background thread
+            // Capture location in background
+            launch {
+                val location = locationHelper.getCurrentLocation()
+                if (location != null) {
+                    repository.getMeetingById(meetingId)?.let {
+                        repository.saveMeeting(it.copy(latitude = location.first, longitude = location.second))
+                    }
+                }
+            }
+
             launch(Dispatchers.Default) {
-                // In real app, model path would be from assets
-                nativeContextPtr = whisperEngine.initContext("models/your_model.bin")
+                if (nativeContextPtr == 0L) {
+                    nativeContextPtr = whisperEngine.initContext("models/your_model.bin")
+                }
                 
                 if (nativeContextPtr != 0L) {
-                    // Start consuming audio data and transcribing in real-time
                     transcriptionJob = launch {
                         audioDataFlow.collect { audioData ->
                             val segments = whisperEngine.transcribeSegments(nativeContextPtr, audioData)
@@ -105,49 +130,49 @@ class MeetingViewModel(
             )
         }
         
-        // Update UI stream
         _transcript.value = _transcript.value + entries
-        
-        // Save to Room for persistence and later cloud sync
         entries.forEach { repository.saveTranscriptEntry(it) }
     }
 
     fun stopMeeting() {
+        _uiState.value = MeetingUiState.AwaitingAudio
+        
         viewModelScope.launch {
-            _uiState.value = MeetingUiState.ProcessingDiarization
+            val intent = Intent(getApplication(), AudioCaptureService::class.java)
+            getApplication<Application>().stopService(intent)
             
             transcriptionJob?.cancel()
             transcriptionJob = null
 
-            // Logic to finalize transcript and free native memory
             if (nativeContextPtr != 0L) {
                 whisperEngine.freeContext(nativeContextPtr)
                 nativeContextPtr = 0
             }
             
-            _uiState.value = MeetingUiState.CloudSynchronizing
+            val duration = ((System.currentTimeMillis() - startTime) / 1000).toInt()
+            currentMeetingId?.let { id ->
+                repository.getMeetingById(id)?.let { currentMeeting ->
+                    val preview = transcript.value.take(3).joinToString(" ") { it.text }
+                    repository.saveMeeting(currentMeeting.copy(
+                        durationSeconds = duration,
+                        transcriptPreview = preview
+                    ))
+                }
+            }
+            
             repository.syncMeetingsToCloud()
             repository.syncTranscriptsToCloud()
-            
-            _uiState.value = MeetingUiState.AwaitingAudio
         }
     }
 
-    private fun observeNetwork() {
+    fun deleteMeeting(id: String) {
         viewModelScope.launch {
-            networkObserver.networkStatus.collect { status ->
-                if (status == NetworkObserver.Status.Available) {
-                    launch { repository.syncMeetingsToCloud() }
-                    launch { repository.syncTranscriptsToCloud() }
-                }
-            }
+            repository.deleteMeeting(id)
         }
     }
 
     sealed class MeetingUiState {
         object AwaitingAudio : MeetingUiState()
         object ActiveRecording : MeetingUiState()
-        object ProcessingDiarization : MeetingUiState()
-        object CloudSynchronizing : MeetingUiState()
     }
 }

@@ -14,20 +14,28 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -39,8 +47,72 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(viewModel: MeetingViewModel, onStartRecording: () -> Unit) {
+fun HomeScreen(viewModel: MeetingViewModel, onStartRecording: (String) -> Unit) {
     val meetings by viewModel.repository.allMeetings.collectAsState(initial = emptyList())
+    var showTitleDialog by remember { mutableStateOf(false) }
+    var meetingTitle by remember { mutableStateOf("") }
+    
+    var meetingToDelete by remember { mutableStateOf<Meeting?>(null) }
+
+    if (showTitleDialog) {
+        AlertDialog(
+            onDismissRequest = { showTitleDialog = false },
+            title = { Text("Start New Meeting") },
+            text = {
+                Column {
+                    Text("Enter a title for your meeting:")
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = meetingTitle,
+                        onValueChange = { meetingTitle = it },
+                        placeholder = { Text("e.g. Design Review") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val title = if (meetingTitle.isNotBlank()) meetingTitle else "Untitled Meeting"
+                        showTitleDialog = false
+                        meetingTitle = ""
+                        onStartRecording(title)
+                    }
+                ) {
+                    Text("Start")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTitleDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+    
+    if (meetingToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { meetingToDelete = null },
+            title = { Text("Delete Recording") },
+            text = { Text("Are you sure you want to delete '${meetingToDelete?.title}'? This will remove it from this device and the cloud.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        meetingToDelete?.let { viewModel.deleteMeeting(it.id) }
+                        meetingToDelete = null
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { meetingToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -59,7 +131,7 @@ fun HomeScreen(viewModel: MeetingViewModel, onStartRecording: () -> Unit) {
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = onStartRecording,
+                onClick = { showTitleDialog = true },
                 icon = { Icon(Icons.Default.Mic, contentDescription = "Record") },
                 text = { Text("New Recording") }
             )
@@ -74,7 +146,10 @@ fun HomeScreen(viewModel: MeetingViewModel, onStartRecording: () -> Unit) {
                 modifier = Modifier.padding(padding)
             ) {
                 items(meetings) { meeting ->
-                    MeetingCard(meeting = meeting)
+                    MeetingCard(
+                        meeting = meeting,
+                        onDelete = { meetingToDelete = meeting }
+                    )
                 }
             }
         }
@@ -82,7 +157,7 @@ fun HomeScreen(viewModel: MeetingViewModel, onStartRecording: () -> Unit) {
 }
 
 @Composable
-private fun MeetingCard(meeting: Meeting) {
+private fun MeetingCard(meeting: Meeting, onDelete: () -> Unit) {
     val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
 
     Card(
@@ -101,28 +176,41 @@ private fun MeetingCard(meeting: Meeting) {
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
-                Spacer(Modifier.width(8.dp))
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Delete",
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        dateFormat.format(meeting.date),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    if (meeting.isSynced) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Cloud Synced",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
                 Text(
                     formatDuration(meeting.durationSeconds),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.outline
                 )
-            }
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    dateFormat.format(meeting.date),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
-                if (meeting.isSynced) {
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "Cloud Synced",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
             }
             if (meeting.transcriptPreview.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
