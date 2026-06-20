@@ -7,6 +7,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.scribesync.scribesync.ui.screens.HomeScreen
+import com.scribesync.scribesync.ui.screens.MeetingDetailScreen
 import com.scribesync.scribesync.ui.screens.RecordingScreen
 import com.scribesync.scribesync.ui.viewmodel.MeetingViewModel
 import java.net.URLEncoder
@@ -20,6 +21,9 @@ sealed class Screen(val route: String) {
             return "recording/$encodedTitle"
         }
     }
+    object MeetingDetail : Screen("meeting_detail/{meetingId}") {
+        fun createRoute(meetingId: String) = "meeting_detail/$meetingId"
+    }
 }
 
 @Composable
@@ -31,6 +35,9 @@ fun NavGraph(viewModel: MeetingViewModel) {
                 viewModel = viewModel,
                 onStartRecording = { title -> 
                     navController.navigate(Screen.Recording.createRoute(title))
+                },
+                onMeetingClick = { meetingId ->
+                    navController.navigate(Screen.MeetingDetail.createRoute(meetingId))
                 }
             )
         }
@@ -43,6 +50,17 @@ fun NavGraph(viewModel: MeetingViewModel) {
                 viewModel = viewModel,
                 meetingTitle = title,
                 onStopRecording = { navController.popBackStack() }
+            )
+        }
+        composable(
+            route = Screen.MeetingDetail.route,
+            arguments = listOf(navArgument("meetingId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val meetingId = backStackEntry.arguments?.getString("meetingId") ?: ""
+            MeetingDetailScreen(
+                viewModel = viewModel,
+                meetingId = meetingId,
+                onBack = { navController.popBackStack() }
             )
         }
     }

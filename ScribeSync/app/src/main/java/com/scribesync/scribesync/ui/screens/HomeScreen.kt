@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -47,13 +46,15 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(viewModel: MeetingViewModel, onStartRecording: (String) -> Unit) {
+fun HomeScreen(
+    viewModel: MeetingViewModel,
+    onStartRecording: (String) -> Unit,
+    onMeetingClick: (String) -> Unit
+) {
     val meetings by viewModel.repository.allMeetings.collectAsState(initial = emptyList())
     var showTitleDialog by remember { mutableStateOf(false) }
     var meetingTitle by remember { mutableStateOf("") }
     
-    var meetingToDelete by remember { mutableStateOf<Meeting?>(null) }
-
     if (showTitleDialog) {
         AlertDialog(
             onDismissRequest = { showTitleDialog = false },
@@ -85,29 +86,6 @@ fun HomeScreen(viewModel: MeetingViewModel, onStartRecording: (String) -> Unit) 
             },
             dismissButton = {
                 TextButton(onClick = { showTitleDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-    
-    if (meetingToDelete != null) {
-        AlertDialog(
-            onDismissRequest = { meetingToDelete = null },
-            title = { Text("Delete Recording") },
-            text = { Text("Are you sure you want to delete '${meetingToDelete?.title}'? This will remove it from this device and the cloud.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        meetingToDelete?.let { viewModel.deleteMeeting(it.id) }
-                        meetingToDelete = null
-                    }
-                ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { meetingToDelete = null }) {
                     Text("Cancel")
                 }
             }
@@ -148,7 +126,7 @@ fun HomeScreen(viewModel: MeetingViewModel, onStartRecording: (String) -> Unit) 
                 items(meetings) { meeting ->
                     MeetingCard(
                         meeting = meeting,
-                        onDelete = { meetingToDelete = meeting }
+                        onClick = { onMeetingClick(meeting.id) }
                     )
                 }
             }
@@ -157,11 +135,12 @@ fun HomeScreen(viewModel: MeetingViewModel, onStartRecording: (String) -> Unit) 
 }
 
 @Composable
-private fun MeetingCard(meeting: Meeting, onDelete: () -> Unit) {
+private fun MeetingCard(meeting: Meeting, onClick: () -> Unit) {
     val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
 
     Card(
         modifier = Modifier.fillMaxWidth(),
+        onClick = onClick,
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -176,14 +155,6 @@ private fun MeetingCard(meeting: Meeting, onDelete: () -> Unit) {
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
             }
             Spacer(Modifier.height(4.dp))
             Row(

@@ -14,11 +14,18 @@ class TranscriptRepository(
     // Flow is observed on IO thread to prevent UI hangs during startup queries
     val allMeetings: Flow<List<Meeting>> = meetingDao.getAllMeetings().flowOn(Dispatchers.IO)
 
-    fun getTranscript(meetingId: String): Flow<List<TranscriptEntry>> =
-        meetingDao.getTranscriptForMeeting(meetingId).flowOn(Dispatchers.IO)
+    fun getTranscript(meetingId: String): Flow<List<TranscriptEntry>> {
+        Log.d("TranscriptRepository", "getTranscript requested for: $meetingId")
+        return meetingDao.getTranscriptForMeeting(meetingId)
+            .flowOn(Dispatchers.IO)
+    }
 
     suspend fun saveMeeting(meeting: Meeting) {
         meetingDao.insertMeeting(meeting)
+    }
+
+    suspend fun updateMeeting(meeting: Meeting) {
+        meetingDao.updateMeeting(meeting)
     }
 
     suspend fun saveTranscriptEntry(entry: TranscriptEntry) {

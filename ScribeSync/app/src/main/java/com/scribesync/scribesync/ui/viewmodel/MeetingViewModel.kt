@@ -116,7 +116,7 @@ class MeetingViewModel(
                 locationJob?.join()
                 lastLocation?.let { loc ->
                     repository.getMeetingById(meetingId)?.let {
-                        repository.saveMeeting(it.copy(latitude = loc.first, longitude = loc.second))
+                        repository.updateMeeting(it.copy(latitude = loc.first, longitude = loc.second))
                     }
                 }
             }
@@ -141,6 +141,7 @@ class MeetingViewModel(
     }
 
     private suspend fun processSegments(meetingId: String, segments: List<WhisperEngine.Segment>) {
+        Log.d("MeetingViewModel", "Processing ${segments.size} segments for meeting: $meetingId")
         val entries = segments.map { segment ->
             TranscriptEntry(
                 meetingId = meetingId,
@@ -152,7 +153,10 @@ class MeetingViewModel(
         }
         
         _transcript.value = _transcript.value + entries
-        entries.forEach { repository.saveTranscriptEntry(it) }
+        entries.forEach { entry ->
+            Log.d("MeetingViewModel", "Saving entry to DB: ${entry.text.take(20)}...")
+            repository.saveTranscriptEntry(entry)
+        }
     }
 
     fun stopMeeting() {
@@ -180,7 +184,7 @@ class MeetingViewModel(
             currentMeetingId?.let { id ->
                 repository.getMeetingById(id)?.let { currentMeeting ->
                     val preview = transcript.value.take(3).joinToString(" ") { it.text }
-                    repository.saveMeeting(currentMeeting.copy(
+                    repository.updateMeeting(currentMeeting.copy(
                         durationSeconds = duration,
                         transcriptPreview = preview,
                         // Ensure we use the last captured location even if DB fetch was old
@@ -198,6 +202,16 @@ class MeetingViewModel(
     fun deleteMeeting(id: String) {
         viewModelScope.launch {
             repository.deleteMeeting(id)
+        }
+    }
+
+    fun updateMeetingTitle(id: String, newTitle: String) {
+        viewModelScope.launch {
+            repository.getMeetingById(id)?.let { meeting ->
+                repository.updateMeeting(meeting.copy(title = newTitle, isSynced = false))
+                // Trigger sync immediately if possible
+                repository.syncMeetingsToCloud()
+            }
         }
     }
 
