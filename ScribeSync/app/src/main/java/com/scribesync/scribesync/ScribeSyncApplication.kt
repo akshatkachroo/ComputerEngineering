@@ -7,6 +7,7 @@ import com.scribesync.scribesync.data.TranscriptRepository
 import com.scribesync.scribesync.engine.WhisperEngine
 import com.scribesync.scribesync.util.LocationHelper
 import com.scribesync.scribesync.util.NetworkObserver
+import com.scribesync.scribesync.util.SummaryService
 import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -31,6 +32,7 @@ class ScribeSyncApplication : Application() {
     val whisperEngine by lazy { WhisperEngine() }
     val locationHelper by lazy { LocationHelper(this) }
     val networkObserver by lazy { NetworkObserver(this) }
+    val summaryService by lazy { SummaryService() }
     
     val audioDataFlow = MutableSharedFlow<FloatArray>(extraBufferCapacity = 64)
 

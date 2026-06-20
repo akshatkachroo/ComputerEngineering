@@ -6,7 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 
-@Database(entities = [Meeting::class, TranscriptEntry::class], version = 1, exportSchema = false)
+@Database(entities = [Meeting::class, TranscriptEntry::class], version = 2, exportSchema = false)
 @TypeConverters(DateConverters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun meetingDao(): MeetingDao
@@ -21,7 +21,9 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "scribesync_database"
-                ).build()
+                )
+                .fallbackToDestructiveMigration() // Added for development ease
+                .build()
                 INSTANCE = instance
                 instance
             }

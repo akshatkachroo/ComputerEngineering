@@ -2,7 +2,7 @@
 #include <string>
 #include <vector>
 #include <android/log.h>
-#include "whisper.cpp/whisper.h"
+#include "whisper.h"
 
 #define TAG "WhisperJNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -48,7 +48,15 @@ extern "C" JNIEXPORT jlong JNICALL
 Java_com_scribesync_scribesync_engine_WhisperEngine_initContext(JNIEnv *env, jobject thiz, jstring model_path) {
     const char *path = env->GetStringUTFChars(model_path, nullptr);
     LOGI("Initializing Whisper with model: %s", path);
-    struct whisper_context * ctx = whisper_init_from_file(path);
+
+    struct whisper_context_params params = whisper_context_default_params();
+    struct whisper_context * ctx = whisper_init_from_file_with_params(path, params);
+
+    if (!ctx) {
+        LOGE("Failed to initialize whisper_context from file: %s", path);
+    } else {
+        LOGI("Whisper context initialized successfully");
+    }
     env->ReleaseStringUTFChars(model_path, path);
     return reinterpret_cast<jlong>(ctx);
 }
@@ -60,15 +68,58 @@ Java_com_scribesync_scribesync_engine_WhisperEngine_transcribeSegments(JNIEnv *e
         return nullptr;
     }
 
+    auto *ctx = reinterpret_cast<struct whisper_context *>(ctx_ptr);
+    if (!ctx) {
+        LOGE("Whisper context pointer is null in transcribeSegments");
+        return nullptr;
+    }
+
     jfloat *samples = env->GetFloatArrayElements(audio_data, nullptr);
     jsize len = env->GetArrayLength(audio_data);
 
+    LOGI("Transcribing %d audio samples", len);
+
+    // Using WHISPER_SAMPLING_BEAM_SEARCH for better accuracy in noisy environments
+    whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_BEAM_SEARCH);
+    params.print_realtime = false;
+    params.print_progress = false;
+    params.n_threads = 4; // Adjust based on target hardware
+
+    // Beam search specific parameters
+    params.beam_search.beam_size = 5;
+
+    // Suppress hallucinations and noise artifacts
+    params.entropy_thold = 2.4f;
+    params.no_speech_thold = 0.6f;
+
+    // Ensure we don't return garbage during silence
+    params.no_context = false;
+
+    if (whisper_full(ctx, params, samples, len) != 0) {
+        LOGE("Failed to run whisper_full");
+        env->ReleaseFloatArrayElements(audio_data, samples, JNI_ABORT);
+        return nullptr;
+    }
+
     jobject listObj = env->NewObject(arrayListClass, arrayListInit);
 
-    // Mock segment for testing pipe integration
-    jstring text = env->NewStringUTF("Mock transcribed segment");
-    jobject segmentObj = env->NewObject(segmentClass, segmentInit, text, (jlong)0, (jlong)1000, (jint)1);
-    env->CallBooleanMethod(listObj, arrayListAdd, segmentObj);
+    int n_segments = whisper_full_n_segments(ctx);
+    LOGI("Transcription finished. Found %d segments", n_segments);
+
+    for (int i = 0; i < n_segments; ++i) {
+        const char * text_str = whisper_full_get_segment_text(ctx, i);
+        jlong t0 = whisper_full_get_segment_t0(ctx, i);
+        jlong t1 = whisper_full_get_segment_t1(ctx, i);
+
+        LOGI("Segment %d: [%ld -> %ld] %s", i, (long)t0, (long)t1, text_str);
+
+        jstring text = env->NewStringUTF(text_str);
+        // Default to Speaker 1 for now (diarization is a future feature)
+        jobject segmentObj = env->NewObject(segmentClass, segmentInit, text, t0 * 10, t1 * 10, (jint)1);
+        env->CallBooleanMethod(listObj, arrayListAdd, segmentObj);
+        env->DeleteLocalRef(text);
+        env->DeleteLocalRef(segmentObj);
+    }
 
     env->ReleaseFloatArrayElements(audio_data, samples, JNI_ABORT);
     return listObj;
@@ -77,5 +128,7 @@ Java_com_scribesync_scribesync_engine_WhisperEngine_transcribeSegments(JNIEnv *e
 extern "C" JNIEXPORT void JNICALL
 Java_com_scribesync_scribesync_engine_WhisperEngine_freeContext(JNIEnv *env, jobject thiz, jlong ctx_ptr) {
     auto *ctx = reinterpret_cast<struct whisper_context *>(ctx_ptr);
-    whisper_free(ctx);
+    if (ctx) {
+        whisper_free(ctx);
+    }
 }

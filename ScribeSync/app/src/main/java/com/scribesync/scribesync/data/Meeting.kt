@@ -14,6 +14,7 @@ data class Meeting(
     val date: Date = Date(),
     val durationSeconds: Int = 0,
     val transcriptPreview: String = "",
+    val summary: String? = null,
     val latitude: Double? = null,
     val longitude: Double? = null,
     val isSynced: Boolean = false

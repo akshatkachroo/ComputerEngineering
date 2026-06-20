@@ -77,7 +77,21 @@ class AudioCaptureService : Service() {
             while (isRecording) {
                 val readResult = audioRecord?.read(buffer, 0, buffer.size) ?: 0
                 if (readResult > 0) {
+                    var maxVal = 0
+                    for (i in 0 until readResult) {
+                        val abs = Math.abs(buffer[i].toInt())
+                        if (abs > maxVal) maxVal = abs
+                    }
+                    if (maxVal > 0) {
+                        // Log only occasionally or if there's significant sound to avoid log spam
+                        // android.util.Log.d("AudioCaptureService", "Peak amplitude: $maxVal")
+                    } else {
+                        android.util.Log.w("AudioCaptureService", "Captured 100% silence (all zeros)")
+                    }
+
                     val floatBuffer = FloatArray(readResult) { buffer[it].toFloat() / Short.MAX_VALUE }
+                    // Log to verify data is being captured
+                    // android.util.Log.d("AudioCaptureService", "Emitting float buffer of size: $readResult")
                     _audioDataFlow.emit(floatBuffer)
                     // Also emit to the global application flow for the ViewModel
                     (application as ScribeSyncApplication).audioDataFlow.emit(floatBuffer)
