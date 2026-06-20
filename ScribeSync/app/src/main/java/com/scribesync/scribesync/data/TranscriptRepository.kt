@@ -1,5 +1,6 @@
 package com.scribesync.scribesync.data
 
+import android.util.Log
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -38,12 +39,16 @@ class TranscriptRepository(
         val unsyncedMeetings = meetingDao.getUnsyncedMeetings()
         for (meeting in unsyncedMeetings) {
             try {
+                val cloudMeeting = meeting.copy(isSynced = true)
+                Log.d("TranscriptRepository", "Syncing meeting to cloud: $cloudMeeting")
                 db.collection("meetings")
                     .document(meeting.id)
-                    .set(meeting)
+                    .set(cloudMeeting)
                     .await()
                 meetingDao.markMeetingAsSynced(meeting.id)
-            } catch (e: Exception) { }
+            } catch (e: Exception) {
+                Log.e("TranscriptRepository", "Error syncing meeting", e)
+            }
         }
     }
 
@@ -53,11 +58,15 @@ class TranscriptRepository(
         if (unsyncedEntries.isEmpty()) return
         for (entry in unsyncedEntries) {
             try {
+                val cloudEntry = entry.copy(isSynced = true)
+                Log.d("TranscriptRepository", "Syncing entry to cloud: $cloudEntry")
                 db.collection("transcripts")
-                    .add(entry)
+                    .add(cloudEntry)
                     .await()
                 meetingDao.markTranscriptEntriesAsSynced(listOf(entry.id))
-            } catch (e: Exception) { }
+            } catch (e: Exception) {
+                Log.e("TranscriptRepository", "Error syncing transcript", e)
+            }
         }
     }
 }

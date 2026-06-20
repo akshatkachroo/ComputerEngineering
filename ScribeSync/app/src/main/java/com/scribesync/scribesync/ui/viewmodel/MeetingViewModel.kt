@@ -2,6 +2,7 @@ package com.scribesync.scribesync.ui.viewmodel
 
 import android.app.Application
 import android.content.Intent
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.initializer
@@ -18,6 +19,7 @@ import com.scribesync.scribesync.util.LocationHelper
 import com.scribesync.scribesync.util.NetworkObserver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -59,7 +61,9 @@ class MeetingViewModel(
     private var currentMeetingId: String? = null
     private var nativeContextPtr: Long = 0
     private var transcriptionJob: Job? = null
+    private var locationJob: Job? = null
     private var startTime: Long = 0
+    private var lastLocation: Pair<Double, Double>? = null
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
@@ -76,11 +80,28 @@ class MeetingViewModel(
         _uiState.value = MeetingUiState.ActiveRecording
         _transcript.value = emptyList()
         startTime = System.currentTimeMillis()
+        lastLocation = null
 
         val intent = Intent(getApplication(), AudioCaptureService::class.java)
         getApplication<Application>().startForegroundService(intent)
 
         viewModelScope.launch {
+            // Start location capture immediately
+            locationJob = launch {
+                Log.d("MeetingViewModel", "Starting location capture...")
+                // Try to get a fix for up to 10 seconds
+                var attempts = 0
+                while (lastLocation == null && attempts < 3) {
+                    lastLocation = locationHelper.getCurrentLocation()
+                    if (lastLocation == null) {
+                        attempts++
+                        Log.d("MeetingViewModel", "Location attempt $attempts failed, retrying...")
+                        delay(2000) // Wait before retrying
+                    }
+                }
+                Log.d("MeetingViewModel", "Location capture finished: $lastLocation")
+            }
+
             val newMeeting = Meeting(
                 title = title,
                 date = Date(),
@@ -90,12 +111,12 @@ class MeetingViewModel(
             currentMeetingId = meetingId
             repository.saveMeeting(newMeeting)
 
-            // Capture location in background
+            // Update meeting with location when it's ready
             launch {
-                val location = locationHelper.getCurrentLocation()
-                if (location != null) {
+                locationJob?.join()
+                lastLocation?.let { loc ->
                     repository.getMeetingById(meetingId)?.let {
-                        repository.saveMeeting(it.copy(latitude = location.first, longitude = location.second))
+                        repository.saveMeeting(it.copy(latitude = loc.first, longitude = loc.second))
                     }
                 }
             }
@@ -143,6 +164,12 @@ class MeetingViewModel(
             
             transcriptionJob?.cancel()
             transcriptionJob = null
+            
+            // Wait for location to finish if it's still running
+            Log.d("MeetingViewModel", "Stopping meeting, waiting for location job...")
+            locationJob?.join()
+            locationJob = null
+            Log.d("MeetingViewModel", "Location job finished, proceeding with stop.")
 
             if (nativeContextPtr != 0L) {
                 whisperEngine.freeContext(nativeContextPtr)
@@ -155,7 +182,10 @@ class MeetingViewModel(
                     val preview = transcript.value.take(3).joinToString(" ") { it.text }
                     repository.saveMeeting(currentMeeting.copy(
                         durationSeconds = duration,
-                        transcriptPreview = preview
+                        transcriptPreview = preview,
+                        // Ensure we use the last captured location even if DB fetch was old
+                        latitude = currentMeeting.latitude ?: lastLocation?.first,
+                        longitude = currentMeeting.longitude ?: lastLocation?.second
                     ))
                 }
             }

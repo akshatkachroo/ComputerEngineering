@@ -68,26 +68,36 @@ fun RecordingScreen(
     val transcriptEntries by viewModel.transcript.collectAsState()
     
     val context = LocalContext.current
-    var hasAudioPermission by remember {
+    var permissionsGranted by remember {
         mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         )
     }
     val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted -> hasAudioPermission = granted }
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        permissionsGranted = permissions[Manifest.permission.RECORD_AUDIO] == true &&
+                permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true
+    }
 
     LaunchedEffect(Unit) {
-        if (!hasAudioPermission) {
-            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        if (!permissionsGranted) {
+            permissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.RECORD_AUDIO,
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
         }
     }
 
     var elapsedSeconds by remember { mutableIntStateOf(0) }
     var isRecording by remember { mutableStateOf(false) }
 
-    LaunchedEffect(hasAudioPermission) {
-        if (hasAudioPermission) {
+    LaunchedEffect(permissionsGranted) {
+        if (permissionsGranted) {
             isRecording = true
             viewModel.startMeeting(meetingTitle)
         }
@@ -144,7 +154,7 @@ fun RecordingScreen(
                 }
             }
 
-            if (!hasAudioPermission) {
+            if (!permissionsGranted) {
                 PermissionDeniedMessage(modifier = Modifier.weight(1f))
             } else {
                 LazyColumn(
