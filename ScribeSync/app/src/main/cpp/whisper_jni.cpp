@@ -62,7 +62,7 @@ Java_com_scribesync_scribesync_engine_WhisperEngine_initContext(JNIEnv *env, job
 }
 
 extern "C" JNIEXPORT jobject JNICALL
-Java_com_scribesync_scribesync_engine_WhisperEngine_transcribeSegments(JNIEnv *env, jobject thiz, jlong ctx_ptr, jfloatArray audio_data) {
+Java_com_scribesync_scribesync_engine_WhisperEngine_transcribeSegments(JNIEnv *env, jobject thiz, jlong ctx_ptr, jfloatArray audio_data, jstring history_prompt) {
     if (!arrayListClass || !segmentClass) {
         LOGE("JNI classes not cached correctly");
         return nullptr;
@@ -77,27 +77,35 @@ Java_com_scribesync_scribesync_engine_WhisperEngine_transcribeSegments(JNIEnv *e
     jfloat *samples = env->GetFloatArrayElements(audio_data, nullptr);
     jsize len = env->GetArrayLength(audio_data);
 
-    LOGI("Transcribing %d audio samples", len);
+    const char *prompt = nullptr;
+    if (history_prompt != nullptr) {
+        prompt = env->GetStringUTFChars(history_prompt, nullptr);
+    }
 
-    // Using WHISPER_SAMPLING_BEAM_SEARCH for better accuracy in noisy environments
-    whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_BEAM_SEARCH);
+    LOGI("Transcribing %d audio samples with prompt: %s", len, prompt ? prompt : "none");
+
+    // Using WHISPER_SAMPLING_GREEDY for significantly better speed on mobile
+    whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
     params.print_realtime = false;
     params.print_progress = false;
-    params.n_threads = 4; // Adjust based on target hardware
+    params.n_threads = 4; // Optimized for modern mobile CPUs
 
-    // Beam search specific parameters
-    params.beam_search.beam_size = 5;
+    // Greedy specific parameters
+    params.greedy.best_of = 1;
 
     // Suppress hallucinations and noise artifacts
     params.entropy_thold = 2.4f;
     params.no_speech_thold = 0.6f;
 
-    // Ensure we don't return garbage during silence
-    params.no_context = false;
+    // Feed history into the engine to provide context
+    if (prompt != nullptr) {
+        params.initial_prompt = prompt;
+    }
 
     if (whisper_full(ctx, params, samples, len) != 0) {
         LOGE("Failed to run whisper_full");
         env->ReleaseFloatArrayElements(audio_data, samples, JNI_ABORT);
+        if (prompt) env->ReleaseStringUTFChars(history_prompt, prompt);
         return nullptr;
     }
 
@@ -122,6 +130,7 @@ Java_com_scribesync_scribesync_engine_WhisperEngine_transcribeSegments(JNIEnv *e
     }
 
     env->ReleaseFloatArrayElements(audio_data, samples, JNI_ABORT);
+    if (prompt) env->ReleaseStringUTFChars(history_prompt, prompt);
     return listObj;
 }
 

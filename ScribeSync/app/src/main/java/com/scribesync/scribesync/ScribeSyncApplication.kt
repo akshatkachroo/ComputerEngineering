@@ -34,7 +34,7 @@ class ScribeSyncApplication : Application() {
     val networkObserver by lazy { NetworkObserver(this) }
     val summaryService by lazy { SummaryService() }
     
-    val audioDataFlow = MutableSharedFlow<FloatArray>(extraBufferCapacity = 64)
+    val audioDataFlow = MutableSharedFlow<FloatArray>(extraBufferCapacity = 256)
 
     override fun onCreate() {
         super.onCreate()

@@ -20,10 +20,12 @@ import com.scribesync.scribesync.util.NetworkObserver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -71,6 +73,8 @@ class MeetingViewModel(
     private var locationJob: Job? = null
     private var startTime: Long = 0
     private var lastLocation: Pair<Double, Double>? = null
+    private var audioChannel: Channel<FloatArray>? = null
+    private var collectionJob: Job? = null
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
@@ -88,11 +92,23 @@ class MeetingViewModel(
         _transcript.value = emptyList()
         startTime = System.currentTimeMillis()
         lastLocation = null
+        audioChannel = Channel(Channel.UNLIMITED)
 
         val intent = Intent(getApplication(), AudioCaptureService::class.java)
         getApplication<Application>().startForegroundService(intent)
 
         viewModelScope.launch {
+            // Forward flow to channel for controlled draining on stop
+            collectionJob = launch {
+                try {
+                    audioDataFlow.collect { 
+                        audioChannel?.send(it)
+                    }
+                } catch (e: Exception) {
+                    Log.d("MeetingViewModel", "Collection job ended: ${e.message}")
+                }
+            }
+
             // Start location capture immediately
             locationJob = launch {
                 Log.d("MeetingViewModel", "Starting location capture...")
@@ -130,7 +146,7 @@ class MeetingViewModel(
 
             launch(Dispatchers.Default) {
                 if (nativeContextPtr == 0L) {
-                    val modelName = "ggml-tiny.en-q8_0.bin"
+                    val modelName = "ggml-base-q8_0.bin"
                     val modelPath = copyAssetToInternalStorage(modelName)
                     if (modelPath != null) {
                         Log.d("MeetingViewModel", "Initializing Whisper with model: $modelPath")
@@ -146,18 +162,20 @@ class MeetingViewModel(
                     transcriptionJob = launch {
                         Log.d("MeetingViewModel", "Transcription collector started")
                         val audioBuffer = mutableListOf<Float>()
+                        var totalSamplesProcessed = 0L
                         
-                        // Sliding Window Parameters
-                        val windowSize = 16000 * 5 // 5 seconds of audio
-                        val stepSize = 16000 * 3   // Move 3 seconds forward (2s overlap)
-                        val silenceThreshold = 0.01f // RMS energy threshold
+                        // Sliding Window Parameters - Optimized for Base Model
+                        val windowSize = 16000 * 8 // 8 seconds of audio
+                        val stepSize = 16000 * 7   // Move 7 seconds forward (1s overlap)
+                        val silenceThreshold = 0.005f // Lower threshold to avoid skipping speech
                         
-                        audioDataFlow.collect { audioData ->
+                        audioChannel?.consumeAsFlow()?.collect { audioData ->
                             audioBuffer.addAll(audioData.toList())
                             
                             // Process when we have at least one window
                             while (audioBuffer.size >= windowSize) {
                                 val window = audioBuffer.take(windowSize).toFloatArray()
+                                val windowStartMs = (totalSamplesProcessed * 1000) / 16000
                                 
                                 // Simple VAD: Check RMS energy of the window
                                 var sumSquares = 0f
@@ -165,10 +183,19 @@ class MeetingViewModel(
                                 val rms = Math.sqrt((sumSquares / window.size).toDouble()).toFloat()
                                 
                                 if (rms > silenceThreshold) {
-                                    Log.d("MeetingViewModel", "Transcribing window, RMS: $rms")
+                                    Log.d("MeetingViewModel", "Transcribing window at ${windowStartMs}ms, RMS: $rms")
+                                    
+                                    // Get last 200 characters of history as context
+                                    val fullHistory = _transcript.value.joinToString(" ") { it.text }
+                                    val prompt = if (fullHistory.length > 200) {
+                                        fullHistory.takeLast(200)
+                                    } else {
+                                        fullHistory
+                                    }
+
                                     val segments = whisperMutex.withLock {
                                         if (nativeContextPtr != 0L) {
-                                            whisperEngine.transcribeSegments(nativeContextPtr, window)
+                                            whisperEngine.transcribeSegments(nativeContextPtr, window, prompt)
                                         } else {
                                             emptyList()
                                         }
@@ -179,19 +206,40 @@ class MeetingViewModel(
                                         val text = segment.text.lowercase()
                                         !text.contains("music") && 
                                         !text.contains("blank_audio") && 
-                                        !text.contains("thank you") && // Common hallucination in quiet
+                                        !text.contains("thank you") && 
                                         text.isNotBlank()
                                     }
 
                                     if (validSegments.isNotEmpty()) {
-                                        processSegments(meetingId, validSegments)
+                                        processSegments(meetingId, validSegments, windowStartMs)
                                     }
                                 } else {
-                                    Log.d("MeetingViewModel", "Skipping silent window, RMS: $rms")
+                                    Log.d("MeetingViewModel", "Skipping silent window at ${windowStartMs}ms, RMS: $rms")
                                 }
                                 
-                                // Move the window forward by stepSize
-                                repeat(stepSize) { if (audioBuffer.isNotEmpty()) audioBuffer.removeAt(0) }
+                                // Efficiently move forward
+                                synchronized(audioBuffer) {
+                                    repeat(stepSize) { if (audioBuffer.isNotEmpty()) audioBuffer.removeAt(0) }
+                                }
+                                totalSamplesProcessed += stepSize
+                            }
+                        }
+                        
+                        // After channel is closed, process the absolute remainder
+                        val finalRemainder = synchronized(audioBuffer) {
+                            val data = audioBuffer.toFloatArray()
+                            audioBuffer.clear()
+                            data
+                        }
+
+                        if (finalRemainder.isNotEmpty()) {
+                            val remainderStartMs = (totalSamplesProcessed * 1000) / 16000
+                            Log.d("MeetingViewModel", "Processing final audio chunk of size: ${finalRemainder.size} at ${remainderStartMs}ms")
+                            whisperMutex.withLock {
+                                if (nativeContextPtr != 0L) {
+                                    val finalSegments = whisperEngine.transcribeSegments(nativeContextPtr, finalRemainder, null)
+                                    processSegments(meetingId, finalSegments, remainderStartMs)
+                                }
                             }
                         }
                     }
@@ -220,20 +268,23 @@ class MeetingViewModel(
         }
     }
 
-    private suspend fun processSegments(meetingId: String, segments: List<WhisperEngine.Segment>) {
-        Log.d("MeetingViewModel", "Processing ${segments.size} segments for meeting: $meetingId")
+    private suspend fun processSegments(meetingId: String, segments: List<WhisperEngine.Segment>, baseTimestampMs: Long) {
+        Log.d("MeetingViewModel", "Processing ${segments.size} segments for meeting: $meetingId at $baseTimestampMs ms")
         
-        // Use a set to avoid duplicating text from overlapping windows
-        val existingTexts = _transcript.value.map { it.text.trim() }.toSet()
+        // Use a small history window to avoid duplicating text from overlapping windows
+        // while still allowing valid repetitions later in the meeting.
+        val recentTexts = _transcript.value.takeLast(5).map { it.text.trim() }.toSet()
         
         val entries = segments
-            .filter { it.text.trim().isNotEmpty() && !existingTexts.contains(it.text.trim()) }
-            .map { segment ->
+            .map { it.text.trim() }
+            .filter { it.isNotEmpty() && !recentTexts.contains(it) }
+            .map { text ->
                 TranscriptEntry(
                     meetingId = meetingId,
                     speakerLabel = "Speaker 1",
-                    text = segment.text.trim(),
-                    timestampMs = System.currentTimeMillis() - startTime, // Use relative meeting time
+                    text = text,
+                    // Use sample-based timestamp plus intra-window offset
+                    timestampMs = baseTimestampMs,
                     isSynced = false
                 )
             }
@@ -254,12 +305,17 @@ class MeetingViewModel(
             val intent = Intent(getApplication(), AudioCaptureService::class.java)
             getApplication<Application>().stopService(intent)
             
-            // 1. Cancel the transcription job FIRST to stop sending data to native context
-            transcriptionJob?.cancel()
+            // 1. Stop feeding new data and signal EOF
+            collectionJob?.cancel()
+            collectionJob = null
+            audioChannel?.close()
+            
+            // 2. Wait for the transcription job to finish processing the remainder
+            Log.d("MeetingViewModel", "Stopping meeting, waiting for transcription job to drain...")
+            transcriptionJob?.join()
             transcriptionJob = null
             
-            // 2. Wait for the location job to finish
-            Log.d("MeetingViewModel", "Stopping meeting, waiting for location job...")
+            // 3. Wait for the location job to finish
             locationJob?.join()
             locationJob = null
             Log.d("MeetingViewModel", "Location job finished, proceeding with stop.")

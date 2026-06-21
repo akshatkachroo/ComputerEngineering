@@ -24,9 +24,10 @@ class WhisperEngine {
      * Transcribes the given audio data and returns low-latency segment streams.
      * @param contextPtr The pointer to the native context.
      * @param audioData The raw PCM audio data (16kHz, FloatArray).
+     * @param historyPrompt Previous transcription text to provide context (optional).
      * @return A list of transcribed segments.
      */
-    external fun transcribeSegments(contextPtr: Long, audioData: FloatArray): List<Segment>
+    external fun transcribeSegments(contextPtr: Long, audioData: FloatArray, historyPrompt: String?): List<Segment>
 
     /**
      * Frees the native context to prevent memory leaks.
