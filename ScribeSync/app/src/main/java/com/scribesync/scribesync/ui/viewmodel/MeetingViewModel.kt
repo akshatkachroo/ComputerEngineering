@@ -371,6 +371,15 @@ class MeetingViewModel(
         }
     }
 
+    fun updateMeetingTags(id: String, newTags: List<String>) {
+        viewModelScope.launch {
+            repository.getMeetingById(id)?.let { meeting ->
+                repository.updateMeeting(meeting.copy(tags = newTags, isSynced = false))
+                repository.syncMeetingsToCloud()
+            }
+        }
+    }
+
     sealed class MeetingUiState {
         object AwaitingAudio : MeetingUiState()
         object ActiveRecording : MeetingUiState()

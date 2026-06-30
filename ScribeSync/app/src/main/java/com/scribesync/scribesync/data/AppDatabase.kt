@@ -6,8 +6,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 
-@Database(entities = [Meeting::class, TranscriptEntry::class], version = 2, exportSchema = false)
-@TypeConverters(DateConverters::class)
+@Database(entities = [Meeting::class, TranscriptEntry::class], version = 3, exportSchema = false)
+@TypeConverters(DateConverters::class, TagsConverter::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun meetingDao(): MeetingDao
 
