@@ -75,6 +75,7 @@ class MeetingViewModel(
     private var lastLocation: Pair<Double, Double>? = null
     private var audioChannel: Channel<FloatArray>? = null
     private var collectionJob: Job? = null
+    private var lastEmittedEndMs: Long = 0L
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
@@ -92,6 +93,7 @@ class MeetingViewModel(
         _transcript.value = emptyList()
         startTime = System.currentTimeMillis()
         lastLocation = null
+        lastEmittedEndMs = 0L
         audioChannel = Channel(Channel.UNLIMITED)
 
         val intent = Intent(getApplication(), AudioCaptureService::class.java)
@@ -202,17 +204,29 @@ class MeetingViewModel(
                                     }
                                     
                                     // Filter out common Whisper hallucination tokens
-                                    val validSegments = segments.filter { segment ->
+                                    val nonHallucinatedSegments = segments.filter { segment ->
                                         val text = segment.text.lowercase()
-                                        !text.contains("music") && 
-                                        !text.contains("blank_audio") && 
-                                        !text.contains("thank you") && 
+                                        !text.contains("music") &&
+                                        !text.contains("blank_audio") &&
+                                        !text.contains("thank you") &&
                                         text.isNotBlank()
+                                    }
+
+                                    // Drop segments that start inside the overlap with the
+                                    // previous window - that audio was already transcribed as
+                                    // the tail of the last window, so re-including it here would
+                                    // duplicate or bisect a sentence at the boundary.
+                                    val validSegments = nonHallucinatedSegments.filter { segment ->
+                                        windowStartMs + segment.t0 >= lastEmittedEndMs
                                     }
 
                                     if (validSegments.isNotEmpty()) {
                                         processSegments(meetingId, validSegments, windowStartMs)
                                     }
+
+                                    // This window's full span has now been attempted, so the
+                                    // next window's overlap region is covered from here on.
+                                    lastEmittedEndMs = windowStartMs + (windowSize * 1000L / 16000)
                                 } else {
                                     Log.d("MeetingViewModel", "Skipping silent window at ${windowStartMs}ms, RMS: $rms")
                                 }
@@ -238,7 +252,10 @@ class MeetingViewModel(
                             whisperMutex.withLock {
                                 if (nativeContextPtr != 0L) {
                                     val finalSegments = whisperEngine.transcribeSegments(nativeContextPtr, finalRemainder, null)
-                                    processSegments(meetingId, finalSegments, remainderStartMs)
+                                    val validFinalSegments = finalSegments.filter { segment ->
+                                        remainderStartMs + segment.t0 >= lastEmittedEndMs
+                                    }
+                                    processSegments(meetingId, validFinalSegments, remainderStartMs)
                                 }
                             }
                         }
@@ -276,15 +293,14 @@ class MeetingViewModel(
         val recentTexts = _transcript.value.takeLast(5).map { it.text.trim() }.toSet()
         
         val entries = segments
-            .map { it.text.trim() }
-            .filter { it.isNotEmpty() && !recentTexts.contains(it) }
-            .map { text ->
+            .filter { it.text.trim().isNotEmpty() && !recentTexts.contains(it.text.trim()) }
+            .map { segment ->
                 TranscriptEntry(
                     meetingId = meetingId,
                     speakerLabel = "Speaker 1",
-                    text = text,
-                    // Use sample-based timestamp plus intra-window offset
-                    timestampMs = baseTimestampMs,
+                    text = segment.text.trim(),
+                    // Per-segment timestamp: window start plus intra-window offset
+                    timestampMs = baseTimestampMs + segment.t0,
                     isSynced = false
                 )
             }
