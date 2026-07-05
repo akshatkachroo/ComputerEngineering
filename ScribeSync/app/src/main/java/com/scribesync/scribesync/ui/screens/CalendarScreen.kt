@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AssignmentTurnedIn
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.*
@@ -23,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.scribesync.scribesync.data.ActionItem
 import com.scribesync.scribesync.data.Meeting
 import com.scribesync.scribesync.ui.viewmodel.MeetingViewModel
 import java.text.SimpleDateFormat
@@ -40,12 +42,20 @@ fun CalendarScreen(
     onMeetingClick: (String) -> Unit
 ) {
     val meetings by viewModel.repository.allMeetings.collectAsState(initial = emptyList())
+    val actionItems by viewModel.repository.allConfirmedActionItems.collectAsState(initial = emptyList())
+    
     var currentMonth by remember { mutableStateOf(YearMonth.now()) }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
 
     val meetingsByDate = remember(meetings) {
         meetings.groupBy { meeting ->
             meeting.date.toInstant().atZone(ZoneId.systemDefault()).toLocalDate()
+        }
+    }
+    
+    val dueItemsByDate = remember(actionItems) {
+        actionItems.filter { it.dueDate != null && !it.isCompleted }.groupBy { item ->
+            item.dueDate!!.toInstant().atZone(ZoneId.systemDefault()).toLocalDate()
         }
     }
 
@@ -75,35 +85,87 @@ fun CalendarScreen(
                 currentMonth = currentMonth,
                 selectedDate = selectedDate,
                 meetingsByDate = meetingsByDate,
+                dueItemsByDate = dueItemsByDate,
                 onDateSelected = { selectedDate = it }
             )
 
             Divider(modifier = Modifier.padding(vertical = 8.dp))
 
             Text(
-                text = "Notes for ${selectedDate.format(java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy"))}",
+                text = "${selectedDate.format(java.time.format.DateTimeFormatter.ofPattern("MMMM d, yyyy"))}",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 fontWeight = FontWeight.Bold
             )
 
             val notesForSelectedDate = meetingsByDate[selectedDate] ?: emptyList()
+            val dueForSelectedDate = dueItemsByDate[selectedDate] ?: emptyList()
             
-            if (notesForSelectedDate.isEmpty()) {
+            if (notesForSelectedDate.isEmpty() && dueForSelectedDate.isEmpty()) {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text("No notes for this day", color = MaterialTheme.colorScheme.outline)
+                    Text("No activity for this day", color = MaterialTheme.colorScheme.outline)
                 }
             } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    items(notesForSelectedDate.sortedBy { it.date }) { meeting ->
-                        MeetingItem(meeting = meeting, onClick = { onMeetingClick(meeting.id) })
+                    if (dueForSelectedDate.isNotEmpty()) {
+                        item {
+                            Text(
+                                "Due Action Items",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        items(dueForSelectedDate) { item ->
+                            DueActionItemCard(item = item)
+                        }
+                    }
+
+                    if (notesForSelectedDate.isNotEmpty()) {
+                        item {
+                            Text(
+                                "Recordings",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.outline,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        items(notesForSelectedDate.sortedBy { it.date }) { meeting ->
+                            MeetingItem(meeting = meeting, onClick = { onMeetingClick(meeting.id) })
+                        }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun DueActionItemCard(item: ActionItem) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f))
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.AssignmentTurnedIn,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = item.text,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }
@@ -141,6 +203,7 @@ fun CalendarGrid(
     currentMonth: YearMonth,
     selectedDate: LocalDate,
     meetingsByDate: Map<LocalDate, List<Meeting>>,
+    dueItemsByDate: Map<LocalDate, List<ActionItem>>,
     onDateSelected: (LocalDate) -> Unit
 ) {
     val daysInMonth = currentMonth.lengthOfMonth()
@@ -168,9 +231,8 @@ fun CalendarGrid(
         LazyVerticalGrid(
             columns = GridCells.Fixed(7),
             modifier = Modifier.fillMaxWidth(),
-            userScrollEnabled = false // Calendar grid shouldn't scroll independently
+            userScrollEnabled = false
         ) {
-            // Empty spaces for days before the first of the month
             items(firstDayOfMonth) {
                 Box(modifier = Modifier.aspectRatio(1f))
             }
@@ -178,12 +240,14 @@ fun CalendarGrid(
             items(days) { day ->
                 val date = currentMonth.atDay(day)
                 val isSelected = date == selectedDate
-                val dailyMeetings = meetingsByDate[date] ?: emptyList()
+                val meetings = meetingsByDate[date] ?: emptyList()
+                val dueItems = dueItemsByDate[date] ?: emptyList()
                 
                 CalendarDay(
                     day = day,
                     isSelected = isSelected,
-                    meetingCount = dailyMeetings.size,
+                    meetingCount = meetings.size,
+                    hasDueItems = dueItems.isNotEmpty(),
                     onClick = { onDateSelected(date) }
                 )
             }
@@ -196,6 +260,7 @@ fun CalendarDay(
     day: Int,
     isSelected: Boolean,
     meetingCount: Int,
+    hasDueItems: Boolean,
     onClick: () -> Unit
 ) {
     Box(
@@ -214,21 +279,28 @@ fun CalendarDay(
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                 fontSize = 14.sp
             )
-            if (meetingCount > 0) {
-                Row(
-                    horizontalArrangement = Arrangement.Center,
-                    modifier = Modifier.padding(top = 2.dp)
-                ) {
-                    // Show up to 3 dots for multiple notes
-                    repeat(minOf(meetingCount, 3)) {
-                        Box(
-                            modifier = Modifier
-                                .padding(horizontal = 1.dp)
-                                .size(4.dp)
-                                .clip(CircleShape)
-                                .background(if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary)
-                        )
-                    }
+            Row(
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(top = 2.dp)
+            ) {
+                // Meeting dots
+                repeat(minOf(meetingCount, 2)) {
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 1.dp)
+                            .size(4.dp)
+                            .clip(CircleShape)
+                            .background(if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary)
+                    )
+                }
+                // Due item indicator (square or different color)
+                if (hasDueItems) {
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 1.dp)
+                            .size(4.dp)
+                            .background(if (isSelected) MaterialTheme.colorScheme.onPrimary else Color.Red)
+                    )
                 }
             }
         }

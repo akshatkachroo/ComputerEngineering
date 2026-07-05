@@ -76,4 +76,17 @@ class TranscriptRepository(
             }
         }
     }
+
+    // Action Items
+    fun getActionItems(meetingId: String): Flow<List<ActionItem>> = 
+        meetingDao.getActionItemsForMeeting(meetingId).flowOn(Dispatchers.IO)
+
+    val allConfirmedActionItems: Flow<List<ActionItem>> = 
+        meetingDao.getAllConfirmedActionItems().flowOn(Dispatchers.IO)
+
+    suspend fun saveActionItem(actionItem: ActionItem) = meetingDao.insertActionItem(actionItem)
+    
+    suspend fun updateActionItem(actionItem: ActionItem) = meetingDao.updateActionItem(actionItem)
+    
+    suspend fun deleteActionItem(id: Long) = meetingDao.deleteActionItem(id)
 }

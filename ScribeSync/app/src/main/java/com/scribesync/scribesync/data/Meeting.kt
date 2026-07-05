@@ -41,3 +41,25 @@ data class TranscriptEntry(
     val timestampMs: Long = 0L,
     val isSynced: Boolean = false
 )
+
+@Entity(
+    tableName = "action_items",
+    foreignKeys = [
+        ForeignKey(
+            entity = Meeting::class,
+            parentColumns = ["id"],
+            childColumns = ["meetingId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index(value = ["meetingId"])]
+)
+data class ActionItem(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val meetingId: String,
+    val text: String,
+    val isCompleted: Boolean = false,
+    val isConfirmed: Boolean = false, // false = Suggested, true = Confirmed
+    val createdAt: Date = Date(),
+    val dueDate: Date? = null
+)

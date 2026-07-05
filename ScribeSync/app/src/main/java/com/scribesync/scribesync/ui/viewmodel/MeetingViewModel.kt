@@ -10,6 +10,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import com.scribesync.scribesync.ScribeSyncApplication
 import androidx.lifecycle.viewModelScope
+import com.scribesync.scribesync.data.ActionItem
 import com.scribesync.scribesync.data.Meeting
 import com.scribesync.scribesync.data.TranscriptEntry
 import com.scribesync.scribesync.data.TranscriptRepository
@@ -332,10 +333,28 @@ class MeetingViewModel(
             val duration = ((System.currentTimeMillis() - startTime) / 1000).toInt()
             currentMeetingId?.let { id ->
                 repository.getMeetingById(id)?.let { currentMeeting ->
-                    val fullTranscript = transcript.value.joinToString("\n") { "${it.speakerLabel}: ${it.text}" }
-                    val preview = transcript.value.take(3).joinToString(" ") { it.text }
+                    var fullTranscript = transcript.value.joinToString("\n") { "${it.speakerLabel}: ${it.text}" }
+                    
+                    // MOCK DATA INJECTION FOR TESTING AI EXTRACTION
+                    if (fullTranscript.isBlank()) {
+                        fullTranscript = """
+                            Speaker 1: Hello everyone, let's start the planning sync.
+                            Speaker 1: I will send updated budget proposal to Sarah by Friday.
+                            Speaker 1: Can you schedule follow up with design team next week?
+                            Speaker 1: We should review competitor analysis doc and add comments by tomorrow.
+                            Speaker 1: Please share recording with stakeholders who missed the call by end of the week.
+                        """.trimIndent()
+                        Log.d("MeetingViewModel", "Using mock transcript for AI testing")
+                    }
+
+                    val preview = if (transcript.value.isNotEmpty()) {
+                        transcript.value.take(3).joinToString(" ") { it.text }
+                    } else {
+                        "Mock recording for AI testing purposes."
+                    }
                     
                     val summary = summaryService.generateSummary(fullTranscript)
+                    val extractedActionItems = summaryService.extractActionItems(fullTranscript)
                     
                     repository.updateMeeting(currentMeeting.copy(
                         durationSeconds = duration,
@@ -346,6 +365,18 @@ class MeetingViewModel(
                         longitude = currentMeeting.longitude ?: lastLocation?.second,
                         isSynced = false
                     ))
+
+                    // Save extracted action items as "suggested" (isConfirmed = false)
+                    extractedActionItems.forEach { extracted ->
+                        repository.saveActionItem(
+                            ActionItem(
+                                meetingId = id,
+                                text = extracted.text,
+                                dueDate = extracted.dueDate,
+                                isConfirmed = false
+                            )
+                        )
+                    }
                 }
             }
             
@@ -377,6 +408,43 @@ class MeetingViewModel(
                 repository.updateMeeting(meeting.copy(tags = newTags, isSynced = false))
                 repository.syncMeetingsToCloud()
             }
+        }
+    }
+
+    fun toggleActionItemComplete(item: ActionItem) {
+        viewModelScope.launch {
+            repository.updateActionItem(item.copy(isCompleted = !item.isCompleted))
+        }
+    }
+
+    fun updateActionItem(item: ActionItem) {
+        viewModelScope.launch {
+            repository.updateActionItem(item)
+        }
+    }
+
+    fun confirmActionItem(item: ActionItem) {
+        viewModelScope.launch {
+            repository.updateActionItem(item.copy(isConfirmed = true))
+        }
+    }
+
+    fun deleteActionItem(id: Long) {
+        viewModelScope.launch {
+            repository.deleteActionItem(id)
+        }
+    }
+
+    fun addManualActionItem(meetingId: String, text: String, dueDate: Date? = null) {
+        viewModelScope.launch {
+            repository.saveActionItem(
+                ActionItem(
+                    meetingId = meetingId,
+                    text = text,
+                    dueDate = dueDate,
+                    isConfirmed = true // Manually added items are confirmed by default
+                )
+            )
         }
     }
 
