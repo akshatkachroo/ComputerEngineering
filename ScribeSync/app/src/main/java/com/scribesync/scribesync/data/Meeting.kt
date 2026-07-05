@@ -17,7 +17,8 @@ data class Meeting(
     val summary: String? = null,
     val latitude: Double? = null,
     val longitude: Double? = null,
-    val isSynced: Boolean = false
+    val isSynced: Boolean = false,
+    val tags: List<String> = emptyList()
 )
 
 @Entity(

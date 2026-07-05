@@ -1,8 +1,11 @@
 package com.scribesync.scribesync.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,9 +19,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -46,7 +53,7 @@ import com.scribesync.scribesync.ui.viewmodel.MeetingViewModel
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun MeetingDetailScreen(
     viewModel: MeetingViewModel,
@@ -59,7 +66,9 @@ fun MeetingDetailScreen(
 
     var showEditDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showAddTagDialog by remember { mutableStateOf(false) }
     var newTitle by remember { mutableStateOf(meeting?.title ?: "") }
+    var newTag by remember { mutableStateOf("") }
 
     if (meeting == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -90,6 +99,39 @@ fun MeetingDetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showEditDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showAddTagDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddTagDialog = false },
+            title = { Text("Add Tag") },
+            text = {
+                OutlinedTextField(
+                    value = newTag,
+                    onValueChange = { newTag = it },
+                    label = { Text("Tag Name") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (newTag.isNotBlank()) {
+                        val updatedTags = (meeting.tags + newTag.trim()).distinct()
+                        viewModel.updateMeetingTags(meetingId, updatedTags)
+                    }
+                    newTag = ""
+                    showAddTagDialog = false
+                }) {
+                    Text("Add")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddTagDialog = false }) {
                     Text("Cancel")
                 }
             }
@@ -150,6 +192,41 @@ fun MeetingDetailScreen(
         ) {
             item {
                 MeetingInfoSection(meeting = meeting)
+            }
+
+            item {
+                Text("Tags", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    meeting.tags.forEach { tag ->
+                        AssistChip(
+                            onClick = { },
+                            label = { Text(tag) },
+                            trailingIcon = {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "Remove tag",
+                                    modifier = Modifier
+                                        .size(AssistChipDefaults.IconSize)
+                                        .clickable {
+                                            val updatedTags = meeting.tags.filter { it != tag }
+                                            viewModel.updateMeetingTags(meetingId, updatedTags)
+                                        }
+                                )
+                            }
+                        )
+                    }
+                    AssistChip(
+                        onClick = { showAddTagDialog = true },
+                        label = { Text("Add Tag") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(AssistChipDefaults.IconSize))
+                        }
+                    )
+                }
             }
 
             if (!meeting.summary.isNullOrEmpty()) {

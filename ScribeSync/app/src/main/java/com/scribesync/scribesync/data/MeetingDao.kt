@@ -42,4 +42,7 @@ interface MeetingDao {
 
     @Query("UPDATE meetings SET isSynced = 1 WHERE id = :id")
     suspend fun markMeetingAsSynced(id: String)
+
+    @Query("SELECT * FROM meetings WHERE tags LIKE '%' || :tag || '%'")
+    fun getMeetingsByTag(tag: String): Flow<List<Meeting>>
 }

@@ -1,10 +1,14 @@
 package com.scribesync.scribesync.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -14,8 +18,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -25,8 +34,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -37,6 +49,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.scribesync.scribesync.data.Meeting
@@ -44,16 +57,33 @@ import com.scribesync.scribesync.ui.viewmodel.MeetingViewModel
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun HomeScreen(
     viewModel: MeetingViewModel,
     onStartRecording: (String) -> Unit,
-    onMeetingClick: (String) -> Unit
+    onMeetingClick: (String) -> Unit,
+    onNavigateToCalendar: () -> Unit
 ) {
     val meetings by viewModel.repository.allMeetings.collectAsState(initial = emptyList())
     var showTitleDialog by remember { mutableStateOf(false) }
     var meetingTitle by remember { mutableStateOf("") }
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedTag by remember { mutableStateOf<String?>(null) }
+    
+    val allTags = remember(meetings) {
+        meetings.flatMap { it.tags }.distinct().sorted()
+    }
+
+    val filteredMeetings = remember(meetings, searchQuery, selectedTag) {
+        meetings.filter { meeting ->
+            val matchesSearch = meeting.title.contains(searchQuery, ignoreCase = true) ||
+                                meeting.transcriptPreview.contains(searchQuery, ignoreCase = true) ||
+                                (meeting.summary?.contains(searchQuery, ignoreCase = true) ?: false)
+            val matchesTag = selectedTag == null || meeting.tags.contains(selectedTag)
+            matchesSearch && matchesTag
+        }
+    }
     
     if (showTitleDialog) {
         AlertDialog(
@@ -96,10 +126,23 @@ fun HomeScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(22.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { onNavigateToCalendar() }
+                    ) {
+                        Icon(
+                            Icons.Default.Mic, 
+                            contentDescription = "Calendar", 
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                         Spacer(Modifier.width(8.dp))
                         Text("ScribeSync", fontWeight = FontWeight.Bold)
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onNavigateToCalendar) {
+                        Icon(Icons.Default.CalendarToday, contentDescription = "Calendar")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -115,19 +158,78 @@ fun HomeScreen(
             )
         }
     ) { padding ->
-        if (meetings.isEmpty()) {
-            EmptyState(modifier = Modifier.padding(padding))
-        } else {
-            LazyColumn(
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.padding(padding)
-            ) {
-                items(meetings) { meeting ->
-                    MeetingCard(
-                        meeting = meeting,
-                        onClick = { onMeetingClick(meeting.id) }
-                    )
+        Column(modifier = Modifier.padding(padding)) {
+            // Search Bar
+            TextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                placeholder = { Text("Search meetings, transcripts, summaries...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear search")
+                        }
+                    }
+                },
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                    disabledContainerColor = MaterialTheme.colorScheme.surface,
+                ),
+                shape = MaterialTheme.shapes.medium,
+                singleLine = true
+            )
+
+            // Tag Filter Chips
+            if (allTags.isNotEmpty()) {
+                FlowRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    allTags.forEach { tag ->
+                        val isSelected = selectedTag == tag
+                        AssistChip(
+                            onClick = { selectedTag = if (isSelected) null else tag },
+                            label = { Text(tag) },
+                            colors = if (isSelected) {
+                                AssistChipDefaults.assistChipColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    labelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            } else {
+                                AssistChipDefaults.assistChipColors()
+                            }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+
+            if (filteredMeetings.isEmpty()) {
+                val message = if (searchQuery.isNotEmpty() || selectedTag != null) {
+                    "No meetings match your filters"
+                } else {
+                    "No recordings yet"
+                }
+                EmptyState(message = message)
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    items(filteredMeetings) { meeting ->
+                        MeetingCard(
+                            meeting = meeting,
+                            onClick = { onMeetingClick(meeting.id) }
+                        )
+                    }
                 }
             }
         }
@@ -157,6 +259,31 @@ private fun MeetingCard(meeting: Meeting, onClick: () -> Unit) {
                 )
             }
             Spacer(Modifier.height(4.dp))
+            
+            if (meeting.tags.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    meeting.tags.take(3).forEach { tag ->
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            shape = MaterialTheme.shapes.extraSmall
+                        ) {
+                            Text(
+                                tag,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    if (meeting.tags.size > 3) {
+                        Text("+${meeting.tags.size - 3}", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -197,7 +324,7 @@ private fun MeetingCard(meeting: Meeting, onClick: () -> Unit) {
 }
 
 @Composable
-private fun EmptyState(modifier: Modifier = Modifier) {
+private fun EmptyState(modifier: Modifier = Modifier, message: String = "No recordings yet") {
     Column(
         modifier = modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -210,7 +337,7 @@ private fun EmptyState(modifier: Modifier = Modifier) {
             tint = MaterialTheme.colorScheme.outlineVariant
         )
         Spacer(Modifier.height(16.dp))
-        Text("No recordings yet", style = MaterialTheme.typography.titleMedium)
+        Text(message, style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(4.dp))
         Text(
             "Tap the button below to start",

@@ -6,6 +6,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.scribesync.scribesync.ui.screens.CalendarScreen
 import com.scribesync.scribesync.ui.screens.HomeScreen
 import com.scribesync.scribesync.ui.screens.MeetingDetailScreen
 import com.scribesync.scribesync.ui.screens.RecordingScreen
@@ -24,6 +25,7 @@ sealed class Screen(val route: String) {
     object MeetingDetail : Screen("meeting_detail/{meetingId}") {
         fun createRoute(meetingId: String) = "meeting_detail/$meetingId"
     }
+    object Calendar : Screen("calendar")
 }
 
 @Composable
@@ -36,6 +38,18 @@ fun NavGraph(viewModel: MeetingViewModel) {
                 onStartRecording = { title -> 
                     navController.navigate(Screen.Recording.createRoute(title))
                 },
+                onMeetingClick = { meetingId ->
+                    navController.navigate(Screen.MeetingDetail.createRoute(meetingId))
+                },
+                onNavigateToCalendar = {
+                    navController.navigate(Screen.Calendar.route)
+                }
+            )
+        }
+        composable(Screen.Calendar.route) {
+            CalendarScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
                 onMeetingClick = { meetingId ->
                     navController.navigate(Screen.MeetingDetail.createRoute(meetingId))
                 }
