@@ -39,6 +39,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,7 +49,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.scribesync.scribesync.data.Contact
 import com.scribesync.scribesync.data.TranscriptEntry
+import com.scribesync.scribesync.ui.components.OwnerBadge
+import com.scribesync.scribesync.ui.components.SyncStatusBadge
+import com.scribesync.scribesync.ui.viewmodel.AuthViewModel
+import com.scribesync.scribesync.ui.viewmodel.ContactsViewModel
 import com.scribesync.scribesync.ui.viewmodel.MeetingViewModel
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -58,15 +64,30 @@ import java.util.Locale
 fun MeetingDetailScreen(
     viewModel: MeetingViewModel,
     meetingId: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    authViewModel: AuthViewModel,
+    contactsViewModel: ContactsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(factory = ContactsViewModel.Factory)
 ) {
     val meetings by viewModel.repository.allMeetings.collectAsState(initial = emptyList())
     val meeting = meetings.find { it.id == meetingId }
     val transcript by viewModel.repository.getTranscript(meetingId).collectAsState(initial = emptyList())
+    val allContacts by contactsViewModel.contacts.collectAsState()
+    val attendees = allContacts.filter { it.contactUserId in (meeting?.attendeeIds ?: emptyList()) }
+    val currentUser by authViewModel.currentUser.collectAsState()
+    val isOwner = meeting != null && meeting.ownerId.isNotEmpty() && meeting.ownerId == currentUser?.uid
+
+    LaunchedEffect(meetingId, isOwner) {
+        if (isOwner) {
+            viewModel.repository.observeRemoteAttendeeIds(meetingId).collect { remoteIds ->
+                viewModel.mergeRemoteAttendeeIds(meetingId, remoteIds)
+            }
+        }
+    }
 
     var showEditDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showAddTagDialog by remember { mutableStateOf(false) }
+    var showAddAttendeeDialog by remember { mutableStateOf(false) }
     var newTitle by remember { mutableStateOf(meeting?.title ?: "") }
     var newTag by remember { mutableStateOf("") }
 
@@ -134,6 +155,20 @@ fun MeetingDetailScreen(
                 TextButton(onClick = { showAddTagDialog = false }) {
                     Text("Cancel")
                 }
+            }
+        )
+    }
+
+    if (showAddAttendeeDialog) {
+        AddAttendeeDialog(
+            allContacts = allContacts,
+            currentAttendeeIds = meeting.attendeeIds.toSet(),
+            onDismiss = { showAddAttendeeDialog = false },
+            onAddAttendee = { contact ->
+                // This sends a request rather than adding them directly -
+                // they show up as an attendee only once they accept.
+                viewModel.sendAttendeeRequest(meetingId, contact.contactUserId)
+                showAddAttendeeDialog = false
             }
         )
     }
@@ -229,6 +264,45 @@ fun MeetingDetailScreen(
                 }
             }
 
+            item {
+                Text("Attendees", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    attendees.forEach { contact ->
+                        AssistChip(
+                            onClick = { },
+                            label = { Text(contact.username) },
+                            trailingIcon = if (isOwner) {
+                                {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Remove attendee",
+                                        modifier = Modifier
+                                            .size(AssistChipDefaults.IconSize)
+                                            .clickable {
+                                                viewModel.updateMeetingAttendees(
+                                                    meetingId,
+                                                    meeting.attendeeIds.filter { it != contact.contactUserId }
+                                                )
+                                            }
+                                    )
+                                }
+                            } else null
+                        )
+                    }
+                    AssistChip(
+                        onClick = { showAddAttendeeDialog = true },
+                        label = { Text("Add Attendee") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(AssistChipDefaults.IconSize))
+                        }
+                    )
+                }
+            }
+
             if (!meeting.summary.isNullOrEmpty()) {
                 item {
                     SummarySection(summary = meeting.summary)
@@ -317,15 +391,11 @@ private fun MeetingInfoSection(meeting: com.scribesync.scribesync.data.Meeting) 
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline
             )
-            if (meeting.isSynced) {
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "• Synced",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
+            Spacer(Modifier.width(8.dp))
+            SyncStatusBadge(isSynced = meeting.isSynced)
         }
+        Spacer(Modifier.height(4.dp))
+        OwnerBadge(ownerName = meeting.ownerName)
     }
 }
 
@@ -364,6 +434,55 @@ private fun TranscriptDetailItem(entry: TranscriptEntry) {
             style = MaterialTheme.typography.bodyMedium
         )
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddAttendeeDialog(
+    allContacts: List<Contact>,
+    currentAttendeeIds: Set<String>,
+    onDismiss: () -> Unit,
+    onAddAttendee: (Contact) -> Unit
+) {
+    val availableContacts = allContacts.filter { it.contactUserId !in currentAttendeeIds }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add Attendee") },
+        text = {
+            if (availableContacts.isEmpty()) {
+                Text(
+                    if (allContacts.isEmpty()) {
+                        "You don't have any contacts yet. Add some from the Contacts tab first."
+                    } else {
+                        "Everyone in your contacts has already been added."
+                    },
+                    color = MaterialTheme.colorScheme.outline
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(availableContacts, key = { it.id }) { contact ->
+                        Text(
+                            contact.username,
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onAddAttendee(contact) }
+                                .padding(vertical = 12.dp)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done")
+            }
+        }
+    )
 }
 
 private fun formatDuration(seconds: Int): String {

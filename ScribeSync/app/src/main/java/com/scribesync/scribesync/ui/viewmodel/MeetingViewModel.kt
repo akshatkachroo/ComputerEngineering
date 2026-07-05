@@ -10,6 +10,8 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import com.scribesync.scribesync.ScribeSyncApplication
 import androidx.lifecycle.viewModelScope
+import com.scribesync.scribesync.data.AttendeeRequestRepository
+import com.scribesync.scribesync.data.AuthRepository
 import com.scribesync.scribesync.data.Meeting
 import com.scribesync.scribesync.data.TranscriptEntry
 import com.scribesync.scribesync.data.TranscriptRepository
@@ -40,7 +42,9 @@ class MeetingViewModel(
     private val locationHelper: LocationHelper,
     private val networkObserver: NetworkObserver,
     private val summaryService: com.scribesync.scribesync.util.SummaryService,
-    private val audioDataFlow: SharedFlow<FloatArray>
+    private val audioDataFlow: SharedFlow<FloatArray>,
+    private val authRepository: AuthRepository,
+    private val attendeeRequestRepository: AttendeeRequestRepository
 ) : AndroidViewModel(application) {
 
     companion object {
@@ -54,7 +58,9 @@ class MeetingViewModel(
                     locationHelper = application.locationHelper,
                     networkObserver = application.networkObserver,
                     summaryService = application.summaryService,
-                    audioDataFlow = application.audioDataFlow
+                    audioDataFlow = application.audioDataFlow,
+                    authRepository = application.authRepository,
+                    attendeeRequestRepository = application.attendeeRequestRepository
                 )
             }
         }
@@ -130,7 +136,9 @@ class MeetingViewModel(
             val newMeeting = Meeting(
                 title = title,
                 date = Date(),
-                isSynced = false
+                isSynced = false,
+                ownerName = authRepository.currentUsername.value ?: "You",
+                ownerId = authRepository.currentUser.value?.uid ?: ""
             )
             val meetingId = newMeeting.id
             currentMeetingId = meetingId
@@ -392,6 +400,40 @@ class MeetingViewModel(
             repository.getMeetingById(id)?.let { meeting ->
                 repository.updateMeeting(meeting.copy(tags = newTags, isSynced = false))
                 repository.syncMeetingsToCloud()
+            }
+        }
+    }
+
+    // Attendees are only ever edited post-recording, from the meeting detail
+    // screen - never during setup or the live recording flow. Only used to
+    // remove attendees now; adding goes through sendAttendeeRequest below
+    // since the invitee has to accept first.
+    fun updateMeetingAttendees(id: String, newAttendeeIds: List<String>) {
+        viewModelScope.launch {
+            repository.getMeetingById(id)?.let { meeting ->
+                repository.updateMeeting(meeting.copy(attendeeIds = newAttendeeIds, isSynced = false))
+                repository.syncMeetingsToCloud()
+            }
+        }
+    }
+
+    fun sendAttendeeRequest(meetingId: String, inviteeUserId: String) {
+        viewModelScope.launch {
+            repository.getMeetingById(meetingId)?.let { meeting ->
+                attendeeRequestRepository.sendRequest(meeting, inviteeUserId)
+            }
+        }
+    }
+
+    // Called from a live listener while the owner has this meeting's detail
+    // screen open, so accepted invites show up without a manual refresh.
+    fun mergeRemoteAttendeeIds(meetingId: String, remoteIds: List<String>) {
+        viewModelScope.launch {
+            repository.getMeetingById(meetingId)?.let { meeting ->
+                val merged = (meeting.attendeeIds + remoteIds).distinct()
+                if (merged != meeting.attendeeIds) {
+                    repository.updateMeeting(meeting.copy(attendeeIds = merged, isSynced = false))
+                }
             }
         }
     }
