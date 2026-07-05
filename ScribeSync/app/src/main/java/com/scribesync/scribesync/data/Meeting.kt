@@ -18,7 +18,14 @@ data class Meeting(
     val latitude: Double? = null,
     val longitude: Double? = null,
     val isSynced: Boolean = false,
-    val tags: List<String> = emptyList()
+    val tags: List<String> = emptyList(),
+    val ownerName: String = "You",
+    // Real uid of the creator - the actual permission check (ownerName is
+    // just a display string and isn't guaranteed unique).
+    val ownerId: String = "",
+    // Contact ids added post-recording from the meeting detail screen.
+    // Reuses TagsConverter's List<String> <-> comma-string mapping.
+    val attendeeIds: List<String> = emptyList()
 )
 
 @Entity(

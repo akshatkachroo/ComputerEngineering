@@ -3,7 +3,9 @@ package com.scribesync.scribesync.data
 import android.util.Log
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.tasks.await
 
@@ -75,5 +77,31 @@ class TranscriptRepository(
                 Log.e("TranscriptRepository", "Error syncing transcript", e)
             }
         }
+    }
+
+    // Live - lets a meeting's creator learn when an invited attendee accepts
+    // on their own device, since sync elsewhere in this repository is push-only.
+    // Only meant to be collected while the owner has this meeting open.
+    fun observeRemoteAttendeeIds(meetingId: String): Flow<List<String>> = callbackFlow {
+        val db = firestore
+        if (db == null) {
+            trySend(emptyList())
+            awaitClose { }
+            return@callbackFlow
+        }
+
+        val registration = db.collection("meetings")
+            .document(meetingId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e("TranscriptRepository", "Error observing remote attendees", error)
+                    return@addSnapshotListener
+                }
+                @Suppress("UNCHECKED_CAST")
+                val ids = (snapshot?.get("attendeeIds") as? List<String>) ?: emptyList()
+                trySend(ids)
+            }
+
+        awaitClose { registration.remove() }
     }
 }
