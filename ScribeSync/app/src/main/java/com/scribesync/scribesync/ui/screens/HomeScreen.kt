@@ -1,7 +1,7 @@
 package com.scribesync.scribesync.ui.screens
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
@@ -51,8 +50,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.scribesync.scribesync.data.Meeting
+import com.scribesync.scribesync.ui.components.OwnerBadge
+import com.scribesync.scribesync.ui.components.SyncStatusBadge
 import com.scribesync.scribesync.ui.viewmodel.MeetingViewModel
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -62,8 +64,7 @@ import java.util.Locale
 fun HomeScreen(
     viewModel: MeetingViewModel,
     onStartRecording: (String) -> Unit,
-    onMeetingClick: (String) -> Unit,
-    onNavigateToCalendar: () -> Unit
+    onMeetingClick: (String) -> Unit
 ) {
     val meetings by viewModel.repository.allMeetings.collectAsState(initial = emptyList())
     var showTitleDialog by remember { mutableStateOf(false) }
@@ -126,13 +127,10 @@ fun HomeScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { onNavigateToCalendar() }
-                    ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            Icons.Default.Mic, 
-                            contentDescription = "Calendar", 
+                            Icons.Default.Mic,
+                            contentDescription = null,
                             modifier = Modifier.size(24.dp),
                             tint = MaterialTheme.colorScheme.primary
                         )
@@ -140,98 +138,112 @@ fun HomeScreen(
                         Text("ScribeSync", fontWeight = FontWeight.Bold)
                     }
                 },
-                actions = {
-                    IconButton(onClick = onNavigateToCalendar) {
-                        Icon(Icons.Default.CalendarToday, contentDescription = "Calendar")
-                    }
-                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer
                 )
             )
-        },
-        floatingActionButton = {
+        }
+    ) { padding ->
+        Box(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Search Bar
+                TextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    placeholder = {
+                        Text(
+                            "Search meetings, transcripts, summaries...",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear search")
+                            }
+                        }
+                    },
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                        disabledContainerColor = MaterialTheme.colorScheme.surface,
+                    ),
+                    shape = MaterialTheme.shapes.medium,
+                    singleLine = true
+                )
+
+                // Tag Filter Chips
+                if (allTags.isNotEmpty()) {
+                    FlowRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        allTags.forEach { tag ->
+                            val isSelected = selectedTag == tag
+                            AssistChip(
+                                onClick = { selectedTag = if (isSelected) null else tag },
+                                label = { Text(tag) },
+                                colors = if (isSelected) {
+                                    AssistChipDefaults.assistChipColors(
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        labelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                } else {
+                                    AssistChipDefaults.assistChipColors()
+                                }
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+
+                if (filteredMeetings.isEmpty()) {
+                    val message = if (searchQuery.isNotEmpty() || selectedTag != null) {
+                        "No meetings match your filters"
+                    } else {
+                        "Record your first meeting"
+                    }
+                    val subtitle = if (searchQuery.isNotEmpty() || selectedTag != null) {
+                        "Try a different search or clear the filter"
+                    } else {
+                        "Tap New Recording below to get started"
+                    }
+                    EmptyState(message = message, subtitle = subtitle)
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        items(filteredMeetings) { meeting ->
+                            MeetingCard(
+                                meeting = meeting,
+                                onClick = { onMeetingClick(meeting.id) }
+                            )
+                        }
+                    }
+                }
+            }
+
             ExtendedFloatingActionButton(
                 onClick = { showTitleDialog = true },
                 icon = { Icon(Icons.Default.Mic, contentDescription = "Record") },
-                text = { Text("New Recording") }
-            )
-        }
-    ) { padding ->
-        Column(modifier = Modifier.padding(padding)) {
-            // Search Bar
-            TextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
+                text = { Text("New Recording") },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                placeholder = { Text("Search meetings, transcripts, summaries...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Default.Close, contentDescription = "Clear search")
-                        }
-                    }
-                },
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surface,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                    disabledContainerColor = MaterialTheme.colorScheme.surface,
-                ),
-                shape = MaterialTheme.shapes.medium,
-                singleLine = true
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 8.dp)
             )
-
-            // Tag Filter Chips
-            if (allTags.isNotEmpty()) {
-                FlowRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    allTags.forEach { tag ->
-                        val isSelected = selectedTag == tag
-                        AssistChip(
-                            onClick = { selectedTag = if (isSelected) null else tag },
-                            label = { Text(tag) },
-                            colors = if (isSelected) {
-                                AssistChipDefaults.assistChipColors(
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    labelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            } else {
-                                AssistChipDefaults.assistChipColors()
-                            }
-                        )
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-
-            if (filteredMeetings.isEmpty()) {
-                val message = if (searchQuery.isNotEmpty() || selectedTag != null) {
-                    "No meetings match your filters"
-                } else {
-                    "No recordings yet"
-                }
-                EmptyState(message = message)
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    items(filteredMeetings) { meeting ->
-                        MeetingCard(
-                            meeting = meeting,
-                            onClick = { onMeetingClick(meeting.id) }
-                        )
-                    }
-                }
-            }
         }
     }
 }
@@ -258,8 +270,10 @@ private fun MeetingCard(meeting: Meeting, onClick: () -> Unit) {
                     modifier = Modifier.weight(1f)
                 )
             }
+            Spacer(Modifier.height(2.dp))
+            OwnerBadge(ownerName = meeting.ownerName)
             Spacer(Modifier.height(4.dp))
-            
+
             if (meeting.tags.isNotEmpty()) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -295,14 +309,8 @@ private fun MeetingCard(meeting: Meeting, onClick: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline
                     )
-                    if (meeting.isSynced) {
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "Cloud Synced",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
+                    Spacer(Modifier.width(8.dp))
+                    SyncStatusBadge(isSynced = meeting.isSynced)
                 }
                 Text(
                     formatDuration(meeting.durationSeconds),
@@ -324,23 +332,34 @@ private fun MeetingCard(meeting: Meeting, onClick: () -> Unit) {
 }
 
 @Composable
-private fun EmptyState(modifier: Modifier = Modifier, message: String = "No recordings yet") {
+private fun EmptyState(
+    modifier: Modifier = Modifier,
+    message: String = "Record your first meeting",
+    subtitle: String = "Tap New Recording below to get started"
+) {
     Column(
         modifier = modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Icon(
-            Icons.Default.Mic,
-            contentDescription = null,
-            modifier = Modifier.size(72.dp),
-            tint = MaterialTheme.colorScheme.outlineVariant
-        )
-        Spacer(Modifier.height(16.dp))
-        Text(message, style = MaterialTheme.typography.titleMedium)
+        Surface(
+            shape = androidx.compose.foundation.shape.CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+        ) {
+            Icon(
+                Icons.Default.Mic,
+                contentDescription = null,
+                modifier = Modifier
+                    .padding(20.dp)
+                    .size(48.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+        Spacer(Modifier.height(20.dp))
+        Text(message, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(4.dp))
         Text(
-            "Tap the button below to start",
+            subtitle,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.outline
         )

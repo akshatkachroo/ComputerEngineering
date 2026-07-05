@@ -10,7 +10,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.*
@@ -24,6 +23,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scribesync.scribesync.data.Meeting
+import com.scribesync.scribesync.ui.components.OwnerBadge
+import com.scribesync.scribesync.ui.components.SyncStatusBadge
 import com.scribesync.scribesync.ui.viewmodel.MeetingViewModel
 import java.text.SimpleDateFormat
 import java.time.LocalDate
@@ -36,7 +37,6 @@ import java.util.*
 @Composable
 fun CalendarScreen(
     viewModel: MeetingViewModel,
-    onBack: () -> Unit,
     onMeetingClick: (String) -> Unit
 ) {
     val meetings by viewModel.repository.allMeetings.collectAsState(initial = emptyList())
@@ -52,12 +52,7 @@ fun CalendarScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Meeting Calendar") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                }
+                title = { Text("Meeting Calendar") }
             )
         }
     ) { padding ->
@@ -264,6 +259,12 @@ fun MeetingItem(meeting: Meeting, onClick: () -> Unit) {
                         maxLines = 1,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+                Spacer(Modifier.height(2.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OwnerBadge(ownerName = meeting.ownerName)
+                    Spacer(Modifier.width(8.dp))
+                    SyncStatusBadge(isSynced = meeting.isSynced)
                 }
             }
             Text(

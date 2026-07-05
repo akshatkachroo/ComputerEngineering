@@ -4,8 +4,9 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.StartOffset
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -27,6 +29,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -174,46 +177,105 @@ fun RecordingScreen(
 
 @Composable
 private fun RecordingStatusHeader(elapsedSeconds: Int, isRecording: Boolean) {
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = if (isRecording) 1.5f else 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(700, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "scale"
-    )
-
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center
+            .padding(vertical = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(
-            modifier = Modifier
-                .size(12.dp)
-                .scale(pulseScale)
-                .background(
-                    color = if (isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
-                    shape = CircleShape
-                )
-        )
-        Spacer(Modifier.width(12.dp))
+        PulsingMicIndicator(isRecording = isRecording)
+        Spacer(Modifier.height(16.dp))
         Text(
             formatDuration(elapsedSeconds),
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold
         )
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.height(4.dp))
         Text(
             if (isRecording) "LIVE" else "WAITING",
             style = MaterialTheme.typography.labelMedium,
             color = if (isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
             fontWeight = FontWeight.Bold
         )
+    }
+}
+
+@Composable
+private fun PulsingMicIndicator(isRecording: Boolean) {
+    val ringColor = MaterialTheme.colorScheme.error
+    val idleColor = MaterialTheme.colorScheme.outline
+
+    val transition = rememberInfiniteTransition(label = "mic-pulse")
+
+    // Two rings on staggered phases give a continuous "radar ping" instead of
+    // one ring visibly resetting every cycle.
+    val ring1Scale by transition.animateFloat(
+        initialValue = 1f,
+        targetValue = 2.4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1600, easing = LinearOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "ring1Scale"
+    )
+    val ring1Alpha by transition.animateFloat(
+        initialValue = 0.45f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1600, easing = LinearOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "ring1Alpha"
+    )
+    val ring2Scale by transition.animateFloat(
+        initialValue = 1f,
+        targetValue = 2.4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1600, easing = LinearOutSlowInEasing),
+            repeatMode = RepeatMode.Restart,
+            initialStartOffset = StartOffset(800)
+        ),
+        label = "ring2Scale"
+    )
+    val ring2Alpha by transition.animateFloat(
+        initialValue = 0.45f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1600, easing = LinearOutSlowInEasing),
+            repeatMode = RepeatMode.Restart,
+            initialStartOffset = StartOffset(800)
+        ),
+        label = "ring2Alpha"
+    )
+
+    Box(modifier = Modifier.size(84.dp), contentAlignment = Alignment.Center) {
+        if (isRecording) {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .scale(ring1Scale)
+                    .background(ringColor.copy(alpha = ring1Alpha), CircleShape)
+            )
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .scale(ring2Scale)
+                    .background(ringColor.copy(alpha = ring2Alpha), CircleShape)
+            )
+        }
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .background(if (isRecording) ringColor else idleColor, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.Mic,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.size(28.dp)
+            )
+        }
     }
 }
 
