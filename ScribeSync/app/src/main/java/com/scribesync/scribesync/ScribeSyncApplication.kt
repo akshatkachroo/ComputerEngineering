@@ -7,9 +7,11 @@ import com.scribesync.scribesync.data.AttendeeRequestRepository
 import com.scribesync.scribesync.data.AuthRepository
 import com.scribesync.scribesync.data.ContactRepository
 import com.scribesync.scribesync.data.TranscriptRepository
+import com.scribesync.scribesync.engine.LlamaEngine
 import com.scribesync.scribesync.engine.WhisperEngine
 import com.scribesync.scribesync.util.LocationHelper
 import com.scribesync.scribesync.util.NetworkObserver
+import com.scribesync.scribesync.util.SummaryModelManager
 import com.scribesync.scribesync.util.SummaryService
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
@@ -56,7 +58,8 @@ class ScribeSyncApplication : Application() {
     val whisperEngine by lazy { WhisperEngine() }
     val locationHelper by lazy { LocationHelper(this) }
     val networkObserver by lazy { NetworkObserver(this) }
-    val summaryService by lazy { SummaryService() }
+    val summaryModelManager by lazy { SummaryModelManager(this) }
+    val summaryService by lazy { SummaryService(summaryModelManager, LlamaEngine()) }
     
     val audioDataFlow = MutableSharedFlow<FloatArray>(extraBufferCapacity = 256)
 

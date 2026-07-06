@@ -23,10 +23,13 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -54,6 +57,8 @@ import com.scribesync.scribesync.data.TranscriptEntry
 import com.scribesync.scribesync.ui.components.OwnerBadge
 import com.scribesync.scribesync.ui.components.groupConsecutiveBySpeaker
 import com.scribesync.scribesync.ui.components.SyncStatusBadge
+import com.scribesync.scribesync.util.SummaryModelManager
+import com.scribesync.scribesync.util.SummaryService
 import com.scribesync.scribesync.ui.viewmodel.AuthViewModel
 import com.scribesync.scribesync.ui.viewmodel.ContactsViewModel
 import com.scribesync.scribesync.ui.viewmodel.MeetingViewModel
@@ -77,6 +82,9 @@ fun MeetingDetailScreen(
     val attendees = allContacts.filter { it.contactUserId in (meeting?.attendeeIds ?: emptyList()) }
     val currentUser by authViewModel.currentUser.collectAsState()
     val isOwner = meeting != null && meeting.ownerId.isNotEmpty() && meeting.ownerId == currentUser?.uid
+    val summarizingMeetingId by viewModel.summarizingMeetingId.collectAsState()
+    val summaryPhase by viewModel.summaryPhase.collectAsState()
+    val modelDownloadState by viewModel.modelDownloadState.collectAsState()
 
     LaunchedEffect(meetingId, isOwner) {
         if (isOwner) {
@@ -309,6 +317,13 @@ fun MeetingDetailScreen(
                 item {
                     SummarySection(summary = meeting.summary)
                 }
+            } else if (summarizingMeetingId == meetingId) {
+                item {
+                    SummaryInProgressSection(
+                        phase = summaryPhase,
+                        downloadState = modelDownloadState
+                    )
+                }
             }
 
             item {
@@ -336,8 +351,26 @@ fun MeetingDetailScreen(
     }
 }
 
+/**
+ * Shown while the on-device summary for this meeting is still being produced.
+ * The first summary may be preceded by a one-time model download.
+ */
 @Composable
-private fun SummarySection(summary: String) {
+private fun SummaryInProgressSection(
+    phase: SummaryService.Phase,
+    downloadState: SummaryModelManager.DownloadState
+) {
+    val label = when {
+        downloadState is SummaryModelManager.DownloadState.Downloading ->
+            "Downloading summary model… ${downloadState.percent}% (one-time, ~1.1 GB)"
+        downloadState is SummaryModelManager.DownloadState.Verifying ->
+            "Verifying summary model…"
+        phase is SummaryService.Phase.LoadingModel ->
+            "Loading summary model…"
+        phase is SummaryService.Phase.Generating ->
+            "Generating summary on-device…"
+        else -> "Preparing summary…"
+    }
     androidx.compose.material3.Card(
         modifier = Modifier.fillMaxWidth(),
         colors = androidx.compose.material3.CardDefaults.cardColors(
@@ -346,25 +379,79 @@ private fun SummarySection(summary: String) {
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = androidx.compose.material.icons.Icons.Default.Edit,
-                    contentDescription = null,
+                CircularProgressIndicator(
                     modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.primary
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    "AI Summary",
+                    label,
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold
                 )
             }
+            if (downloadState is SummaryModelManager.DownloadState.Downloading) {
+                Spacer(Modifier.height(8.dp))
+                LinearProgressIndicator(
+                    progress = { downloadState.percent / 100f },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SummarySection(summary: String) {
+    // A failed generation is stored with a marker prefix so it renders as an
+    // explicit error state instead of masquerading as a real summary.
+    val failed = summary.startsWith(SummaryService.FAILED_PREFIX)
+    val body = if (failed) {
+        "Summary generation failed: ${summary.removePrefix(SummaryService.FAILED_PREFIX).trim()}"
+    } else {
+        summary
+    }
+    androidx.compose.material3.Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = if (failed) {
+                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+            } else {
+                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+            }
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (failed) {
+                        androidx.compose.material.icons.Icons.Default.Warning
+                    } else {
+                        androidx.compose.material.icons.Icons.Default.Edit
+                    },
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (failed) "AI Summary Unavailable" else "AI Summary",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
             Spacer(Modifier.height(8.dp))
             Text(
-                summary,
+                body,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSecondaryContainer
+                color = if (failed) {
+                    MaterialTheme.colorScheme.onErrorContainer
+                } else {
+                    MaterialTheme.colorScheme.onSecondaryContainer
+                }
             )
         }
     }

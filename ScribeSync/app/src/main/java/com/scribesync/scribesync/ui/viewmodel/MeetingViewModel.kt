@@ -19,6 +19,7 @@ import com.scribesync.scribesync.engine.WhisperEngine
 import com.scribesync.scribesync.service.AudioCaptureService
 import com.scribesync.scribesync.util.LocationHelper
 import com.scribesync.scribesync.util.NetworkObserver
+import com.scribesync.scribesync.util.SummaryService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -72,6 +73,13 @@ class MeetingViewModel(
     private val _transcript = MutableStateFlow<List<TranscriptEntry>>(emptyList())
     val transcript: StateFlow<List<TranscriptEntry>> = _transcript.asStateFlow()
 
+    // Progress of on-device summarization, surfaced by the meeting detail screen while
+    // the summary for [summarizingMeetingId] is still being produced.
+    val summaryPhase: StateFlow<SummaryService.Phase> get() = summaryService.phase
+    val modelDownloadState get() = summaryService.modelDownloadState
+    private val _summarizingMeetingId = MutableStateFlow<String?>(null)
+    val summarizingMeetingId: StateFlow<String?> = _summarizingMeetingId.asStateFlow()
+
     // True only while a phrase is actively being run through whisper_full -
     // lets the UI show a "Transcribing..." indicator during the processing
     // gap after each pause in speech, so it doesn't look stalled.
@@ -111,6 +119,11 @@ class MeetingViewModel(
 
         val intent = Intent(getApplication(), AudioCaptureService::class.java)
         getApplication<Application>().startForegroundService(intent)
+
+        // Fetch the summary model (weights only - never meeting data) in the background
+        // so it is usually ready by the time the meeting ends. Failures are retried and
+        // reported honestly when the summary is actually requested.
+        viewModelScope.launch(Dispatchers.IO) { summaryService.prefetchModel() }
 
         viewModelScope.launch {
             // Forward flow to channel for controlled draining on stop
@@ -356,9 +369,18 @@ class MeetingViewModel(
                 repository.getMeetingById(id)?.let { currentMeeting ->
                     val fullTranscript = transcript.value.joinToString("\n") { "${it.speakerLabel}: ${it.text}" }
                     val preview = transcript.value.take(3).joinToString(" ") { it.text }
-                    
-                    val summary = summaryService.generateSummary(fullTranscript)
-                    
+
+                    _summarizingMeetingId.value = id
+                    val summary = when (val result = summaryService.generateSummary(fullTranscript)) {
+                        is SummaryService.SummaryResult.Success -> result.text
+                        is SummaryService.SummaryResult.EmptyTranscript ->
+                            "No speech was captured in this meeting."
+                        is SummaryService.SummaryResult.Failure -> {
+                            Log.e("MeetingViewModel", "Summary failed: ${result.reason}")
+                            "${SummaryService.FAILED_PREFIX} ${result.reason}"
+                        }
+                    }
+
                     repository.updateMeeting(currentMeeting.copy(
                         durationSeconds = duration,
                         transcriptPreview = preview,
@@ -370,7 +392,8 @@ class MeetingViewModel(
                     ))
                 }
             }
-            
+            _summarizingMeetingId.value = null
+
             repository.syncMeetingsToCloud()
             repository.syncTranscriptsToCloud()
             _uiState.value = MeetingUiState.AwaitingAudio
