@@ -36,7 +36,7 @@ JNI_OnLoad(JavaVM* vm, void* reserved) {
     jclass localSegmentClass = env->FindClass("com/scribesync/scribesync/engine/WhisperEngine$Segment");
     if (localSegmentClass) {
         segmentClass = reinterpret_cast<jclass>(env->NewGlobalRef(localSegmentClass));
-        segmentInit = env->GetMethodID(segmentClass, "<init>", "(Ljava/lang/String;JJI)V");
+        segmentInit = env->GetMethodID(segmentClass, "<init>", "(Ljava/lang/String;JJZ)V");
     } else {
         LOGE("Failed to find Segment class");
     }
@@ -62,7 +62,7 @@ Java_com_scribesync_scribesync_engine_WhisperEngine_initContext(JNIEnv *env, job
 }
 
 extern "C" JNIEXPORT jobject JNICALL
-Java_com_scribesync_scribesync_engine_WhisperEngine_transcribeSegments(JNIEnv *env, jobject thiz, jlong ctx_ptr, jfloatArray audio_data, jstring history_prompt) {
+Java_com_scribesync_scribesync_engine_WhisperEngine_transcribeSegments(JNIEnv *env, jobject thiz, jlong ctx_ptr, jfloatArray audio_data) {
     if (!arrayListClass || !segmentClass) {
         LOGE("JNI classes not cached correctly");
         return nullptr;
@@ -77,12 +77,7 @@ Java_com_scribesync_scribesync_engine_WhisperEngine_transcribeSegments(JNIEnv *e
     jfloat *samples = env->GetFloatArrayElements(audio_data, nullptr);
     jsize len = env->GetArrayLength(audio_data);
 
-    const char *prompt = nullptr;
-    if (history_prompt != nullptr) {
-        prompt = env->GetStringUTFChars(history_prompt, nullptr);
-    }
-
-    LOGI("Transcribing %d audio samples with prompt: %s", len, prompt ? prompt : "none");
+    LOGI("Transcribing %d audio samples", len);
 
     // Using WHISPER_SAMPLING_GREEDY for significantly better speed on mobile
     whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
@@ -97,15 +92,21 @@ Java_com_scribesync_scribesync_engine_WhisperEngine_transcribeSegments(JNIEnv *e
     params.entropy_thold = 2.4f;
     params.no_speech_thold = 0.6f;
 
-    // Feed history into the engine to provide context
-    if (prompt != nullptr) {
-        params.initial_prompt = prompt;
-    }
+    // Each call is one silence-isolated phrase from the Kotlin-side VAD, so
+    // there's no prior-segment context worth carrying into this call.
+    params.no_context = true;
+
+    // tinydiarize: when true, the model emits an internal turn token whenever
+    // it detects a speaker change (whisper_full_get_segment_speaker_turn_next
+    // surfaces that per-segment below). Currently bundling the plain (non-tdrz)
+    // model, which was never trained to emit that token - leave this false so
+    // its suppression in the decoder stays on, same as stock behavior. Flip to
+    // true only once a tdrz-finetuned model asset is actually in place.
+    params.tdrz_enable = false;
 
     if (whisper_full(ctx, params, samples, len) != 0) {
         LOGE("Failed to run whisper_full");
         env->ReleaseFloatArrayElements(audio_data, samples, JNI_ABORT);
-        if (prompt) env->ReleaseStringUTFChars(history_prompt, prompt);
         return nullptr;
     }
 
@@ -119,18 +120,20 @@ Java_com_scribesync_scribesync_engine_WhisperEngine_transcribeSegments(JNIEnv *e
         jlong t0 = whisper_full_get_segment_t0(ctx, i);
         jlong t1 = whisper_full_get_segment_t1(ctx, i);
 
-        LOGI("Segment %d: [%ld -> %ld] %s", i, (long)t0, (long)t1, text_str);
+        // A turn flagged after the PREVIOUS segment means THIS segment is the
+        // first one from the new speaker.
+        bool isNewSpeaker = (i > 0) && whisper_full_get_segment_speaker_turn_next(ctx, i - 1);
+
+        LOGI("Segment %d: [%ld -> %ld] %s (newSpeaker=%d)", i, (long)t0, (long)t1, text_str, isNewSpeaker);
 
         jstring text = env->NewStringUTF(text_str);
-        // Default to Speaker 1 for now (diarization is a future feature)
-        jobject segmentObj = env->NewObject(segmentClass, segmentInit, text, t0 * 10, t1 * 10, (jint)1);
+        jobject segmentObj = env->NewObject(segmentClass, segmentInit, text, t0 * 10, t1 * 10, (jboolean)isNewSpeaker);
         env->CallBooleanMethod(listObj, arrayListAdd, segmentObj);
         env->DeleteLocalRef(text);
         env->DeleteLocalRef(segmentObj);
     }
 
     env->ReleaseFloatArrayElements(audio_data, samples, JNI_ABORT);
-    if (prompt) env->ReleaseStringUTFChars(history_prompt, prompt);
     return listObj;
 }
 

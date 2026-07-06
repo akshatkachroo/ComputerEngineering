@@ -72,6 +72,12 @@ class MeetingViewModel(
     private val _transcript = MutableStateFlow<List<TranscriptEntry>>(emptyList())
     val transcript: StateFlow<List<TranscriptEntry>> = _transcript.asStateFlow()
 
+    // True only while a phrase is actively being run through whisper_full -
+    // lets the UI show a "Transcribing..." indicator during the processing
+    // gap after each pause in speech, so it doesn't look stalled.
+    private val _isTranscribing = MutableStateFlow(false)
+    val isTranscribing: StateFlow<Boolean> = _isTranscribing.asStateFlow()
+
     private var currentMeetingId: String? = null
     private var nativeContextPtr: Long = 0
     private val whisperMutex = Mutex()
@@ -81,7 +87,7 @@ class MeetingViewModel(
     private var lastLocation: Pair<Double, Double>? = null
     private var audioChannel: Channel<FloatArray>? = null
     private var collectionJob: Job? = null
-    private var lastEmittedEndMs: Long = 0L
+    private var currentSpeakerNumber: Int = 1
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
@@ -99,7 +105,8 @@ class MeetingViewModel(
         _transcript.value = emptyList()
         startTime = System.currentTimeMillis()
         lastLocation = null
-        lastEmittedEndMs = 0L
+        currentSpeakerNumber = 1
+        _isTranscribing.value = false
         audioChannel = Channel(Channel.UNLIMITED)
 
         val intent = Intent(getApplication(), AudioCaptureService::class.java)
@@ -156,7 +163,7 @@ class MeetingViewModel(
 
             launch(Dispatchers.Default) {
                 if (nativeContextPtr == 0L) {
-                    val modelName = "ggml-base-q8_0.bin"
+                    val modelName = "ggml-tiny.en-q8_0.bin"
                     val modelPath = copyAssetToInternalStorage(modelName)
                     if (modelPath != null) {
                         Log.d("MeetingViewModel", "Initializing Whisper with model: $modelPath")
@@ -171,102 +178,91 @@ class MeetingViewModel(
                 if (nativeContextPtr != 0L) {
                     transcriptionJob = launch {
                         Log.d("MeetingViewModel", "Transcription collector started")
-                        val audioBuffer = mutableListOf<Float>()
+
+                        // Phrase-based chunking: instead of cutting on a fixed
+                        // timer (which bisects words mid-syllable), accumulate
+                        // audio into a single phrase buffer and only cut once
+                        // we've seen a real pause. This means every chunk we
+                        // hand to Whisper is a naturally-bounded phrase, so the
+                        // old overlap/dedup logic is no longer needed.
+                        val analysisChunkMs = 200L
+                        val analysisChunkSamples = (16000 * analysisChunkMs / 1000).toInt()
+                        val silenceThreshold = 0.005f
+                        val silenceCutMs = 500L
+                        val maxPhraseSamples = 16000 * 25 // safety cap: force a cut before a run-on monologue outgrows Whisper's ~30s context
+
+                        val analysisBuffer = mutableListOf<Float>()
+                        val phraseBuffer = mutableListOf<Float>()
                         var totalSamplesProcessed = 0L
-                        
-                        // Sliding Window Parameters - Optimized for Base Model
-                        val windowSize = 16000 * 8 // 8 seconds of audio
-                        val stepSize = 16000 * 7   // Move 7 seconds forward (1s overlap)
-                        val silenceThreshold = 0.005f // Lower threshold to avoid skipping speech
-                        
-                        audioChannel?.consumeAsFlow()?.collect { audioData ->
-                            audioBuffer.addAll(audioData.toList())
-                            
-                            // Process when we have at least one window
-                            while (audioBuffer.size >= windowSize) {
-                                val window = audioBuffer.take(windowSize).toFloatArray()
-                                val windowStartMs = (totalSamplesProcessed * 1000) / 16000
-                                
-                                // Simple VAD: Check RMS energy of the window
-                                var sumSquares = 0f
-                                for (sample in window) sumSquares += sample * sample
-                                val rms = Math.sqrt((sumSquares / window.size).toDouble()).toFloat()
-                                
-                                if (rms > silenceThreshold) {
-                                    Log.d("MeetingViewModel", "Transcribing window at ${windowStartMs}ms, RMS: $rms")
-                                    
-                                    // Get last 200 characters of history as context
-                                    val fullHistory = _transcript.value.joinToString(" ") { it.text }
-                                    val prompt = if (fullHistory.length > 200) {
-                                        fullHistory.takeLast(200)
+                        var silenceRunMs = 0L
+                        var hasSpeech = false
+
+                        suspend fun flushPhrase() {
+                            if (hasSpeech && phraseBuffer.isNotEmpty()) {
+                                val phraseStartMs = (totalSamplesProcessed - phraseBuffer.size) * 1000L / 16000
+                                val phraseAudio = phraseBuffer.toFloatArray()
+                                Log.d("MeetingViewModel", "Transcribing phrase of ${phraseAudio.size} samples at ${phraseStartMs}ms")
+
+                                _isTranscribing.value = true
+                                val segments = whisperMutex.withLock {
+                                    if (nativeContextPtr != 0L) {
+                                        whisperEngine.transcribeSegments(nativeContextPtr, phraseAudio)
                                     } else {
-                                        fullHistory
+                                        emptyList()
                                     }
+                                }
+                                _isTranscribing.value = false
 
-                                    val segments = whisperMutex.withLock {
-                                        if (nativeContextPtr != 0L) {
-                                            whisperEngine.transcribeSegments(nativeContextPtr, window, prompt)
-                                        } else {
-                                            emptyList()
-                                        }
-                                    }
-                                    
-                                    // Filter out common Whisper hallucination tokens
-                                    val nonHallucinatedSegments = segments.filter { segment ->
-                                        val text = segment.text.lowercase()
-                                        !text.contains("music") &&
-                                        !text.contains("blank_audio") &&
-                                        !text.contains("thank you") &&
-                                        text.isNotBlank()
-                                    }
+                                // Filter out common Whisper hallucination tokens
+                                val nonHallucinatedSegments = segments.filter { segment ->
+                                    val text = segment.text.lowercase()
+                                    !text.contains("music") &&
+                                    !text.contains("blank_audio") &&
+                                    !text.contains("thank you") &&
+                                    text.isNotBlank()
+                                }
 
-                                    // Drop segments that start inside the overlap with the
-                                    // previous window - that audio was already transcribed as
-                                    // the tail of the last window, so re-including it here would
-                                    // duplicate or bisect a sentence at the boundary.
-                                    val validSegments = nonHallucinatedSegments.filter { segment ->
-                                        windowStartMs + segment.t0 >= lastEmittedEndMs
-                                    }
+                                if (nonHallucinatedSegments.isNotEmpty()) {
+                                    processSegments(meetingId, nonHallucinatedSegments, phraseStartMs)
+                                }
+                            }
+                            phraseBuffer.clear()
+                            silenceRunMs = 0L
+                            hasSpeech = false
+                        }
 
-                                    if (validSegments.isNotEmpty()) {
-                                        processSegments(meetingId, validSegments, windowStartMs)
-                                    }
+                        audioChannel?.consumeAsFlow()?.collect { audioData ->
+                            analysisBuffer.addAll(audioData.toList())
 
-                                    // This window's full span has now been attempted, so the
-                                    // next window's overlap region is covered from here on.
-                                    lastEmittedEndMs = windowStartMs + (windowSize * 1000L / 16000)
+                            while (analysisBuffer.size >= analysisChunkSamples) {
+                                val slice = analysisBuffer.subList(0, analysisChunkSamples).toFloatArray()
+                                analysisBuffer.subList(0, analysisChunkSamples).clear()
+
+                                var sumSquares = 0f
+                                for (sample in slice) sumSquares += sample * sample
+                                val rms = Math.sqrt((sumSquares / slice.size).toDouble()).toFloat()
+
+                                phraseBuffer.addAll(slice.toList())
+                                totalSamplesProcessed += slice.size
+
+                                if (rms > silenceThreshold) {
+                                    hasSpeech = true
+                                    silenceRunMs = 0L
                                 } else {
-                                    Log.d("MeetingViewModel", "Skipping silent window at ${windowStartMs}ms, RMS: $rms")
+                                    silenceRunMs += analysisChunkMs
                                 }
-                                
-                                // Efficiently move forward
-                                synchronized(audioBuffer) {
-                                    repeat(stepSize) { if (audioBuffer.isNotEmpty()) audioBuffer.removeAt(0) }
+
+                                val shouldCutForSilence = hasSpeech && silenceRunMs >= silenceCutMs
+                                val shouldCutForLength = phraseBuffer.size >= maxPhraseSamples
+
+                                if (shouldCutForSilence || shouldCutForLength) {
+                                    flushPhrase()
                                 }
-                                totalSamplesProcessed += stepSize
                             }
-                        }
-                        
-                        // After channel is closed, process the absolute remainder
-                        val finalRemainder = synchronized(audioBuffer) {
-                            val data = audioBuffer.toFloatArray()
-                            audioBuffer.clear()
-                            data
                         }
 
-                        if (finalRemainder.isNotEmpty()) {
-                            val remainderStartMs = (totalSamplesProcessed * 1000) / 16000
-                            Log.d("MeetingViewModel", "Processing final audio chunk of size: ${finalRemainder.size} at ${remainderStartMs}ms")
-                            whisperMutex.withLock {
-                                if (nativeContextPtr != 0L) {
-                                    val finalSegments = whisperEngine.transcribeSegments(nativeContextPtr, finalRemainder, null)
-                                    val validFinalSegments = finalSegments.filter { segment ->
-                                        remainderStartMs + segment.t0 >= lastEmittedEndMs
-                                    }
-                                    processSegments(meetingId, validFinalSegments, remainderStartMs)
-                                }
-                            }
-                        }
+                        // Channel closed (recording stopped) - flush whatever phrase was in progress
+                        flushPhrase()
                     }
                 }
             }
@@ -295,24 +291,26 @@ class MeetingViewModel(
 
     private suspend fun processSegments(meetingId: String, segments: List<WhisperEngine.Segment>, baseTimestampMs: Long) {
         Log.d("MeetingViewModel", "Processing ${segments.size} segments for meeting: $meetingId at $baseTimestampMs ms")
-        
-        // Use a small history window to avoid duplicating text from overlapping windows
-        // while still allowing valid repetitions later in the meeting.
-        val recentTexts = _transcript.value.takeLast(5).map { it.text.trim() }.toSet()
-        
-        val entries = segments
-            .filter { it.text.trim().isNotEmpty() && !recentTexts.contains(it.text.trim()) }
-            .map { segment ->
+
+        // Chunks are now silence-isolated phrases rather than overlapping
+        // windows, so there's no boundary duplication left to filter out.
+        val entries = mutableListOf<TranscriptEntry>()
+        for (segment in segments) {
+            val text = segment.text.trim()
+            if (text.isEmpty()) continue
+            if (segment.isNewSpeaker) currentSpeakerNumber++
+            entries.add(
                 TranscriptEntry(
                     meetingId = meetingId,
-                    speakerLabel = "Speaker 1",
-                    text = segment.text.trim(),
-                    // Per-segment timestamp: window start plus intra-window offset
+                    speakerLabel = "Speaker $currentSpeakerNumber",
+                    text = text,
+                    // Per-segment timestamp: phrase start plus intra-phrase offset
                     timestampMs = baseTimestampMs + segment.t0,
                     isSynced = false
                 )
-            }
-        
+            )
+        }
+
         if (entries.isNotEmpty()) {
             _transcript.value = _transcript.value + entries
             entries.forEach { entry ->

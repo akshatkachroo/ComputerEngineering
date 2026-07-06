@@ -5,7 +5,10 @@ class WhisperEngine {
         val text: String,
         val t0: Long,
         val t1: Long,
-        val speakerId: Int = -1
+        // True when the tdrz model detected a speaker turn right before this
+        // segment started - not persistent speaker identity, just "someone
+        // new started talking here".
+        val isNewSpeaker: Boolean = false
     )
 
     companion object {
@@ -22,12 +25,13 @@ class WhisperEngine {
 
     /**
      * Transcribes the given audio data and returns low-latency segment streams.
+     * Each call is a self-contained phrase (already isolated by silence-based
+     * VAD upstream), so no cross-call context/prompt is needed.
      * @param contextPtr The pointer to the native context.
      * @param audioData The raw PCM audio data (16kHz, FloatArray).
-     * @param historyPrompt Previous transcription text to provide context (optional).
      * @return A list of transcribed segments.
      */
-    external fun transcribeSegments(contextPtr: Long, audioData: FloatArray, historyPrompt: String?): List<Segment>
+    external fun transcribeSegments(contextPtr: Long, audioData: FloatArray): List<Segment>
 
     /**
      * Frees the native context to prevent memory leaks.

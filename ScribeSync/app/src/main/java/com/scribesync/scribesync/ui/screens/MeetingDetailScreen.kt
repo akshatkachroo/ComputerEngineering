@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import com.scribesync.scribesync.data.Contact
 import com.scribesync.scribesync.data.TranscriptEntry
 import com.scribesync.scribesync.ui.components.OwnerBadge
+import com.scribesync.scribesync.ui.components.groupConsecutiveBySpeaker
 import com.scribesync.scribesync.ui.components.SyncStatusBadge
 import com.scribesync.scribesync.ui.viewmodel.AuthViewModel
 import com.scribesync.scribesync.ui.viewmodel.ContactsViewModel
@@ -71,6 +72,7 @@ fun MeetingDetailScreen(
     val meetings by viewModel.repository.allMeetings.collectAsState(initial = emptyList())
     val meeting = meetings.find { it.id == meetingId }
     val transcript by viewModel.repository.getTranscript(meetingId).collectAsState(initial = emptyList())
+    val groupedTranscript = remember(transcript) { groupConsecutiveBySpeaker(transcript) }
     val allContacts by contactsViewModel.contacts.collectAsState()
     val attendees = allContacts.filter { it.contactUserId in (meeting?.attendeeIds ?: emptyList()) }
     val currentUser by authViewModel.currentUser.collectAsState()
@@ -326,8 +328,8 @@ fun MeetingDetailScreen(
                     }
                 }
             } else {
-                items(transcript) { entry ->
-                    TranscriptDetailItem(entry = entry)
+                items(groupedTranscript) { group ->
+                    TranscriptDetailItem(group = group)
                 }
             }
         }
@@ -400,8 +402,9 @@ private fun MeetingInfoSection(meeting: com.scribesync.scribesync.data.Meeting) 
 }
 
 @Composable
-private fun TranscriptDetailItem(entry: TranscriptEntry) {
-    val speakerColor = when (entry.speakerLabel) {
+private fun TranscriptDetailItem(group: List<TranscriptEntry>) {
+    val firstEntry = group.first()
+    val speakerColor = when (firstEntry.speakerLabel) {
         "Speaker 1" -> MaterialTheme.colorScheme.primary
         "Speaker 2" -> MaterialTheme.colorScheme.tertiary
         else -> MaterialTheme.colorScheme.secondary
@@ -414,7 +417,7 @@ private fun TranscriptDetailItem(entry: TranscriptEntry) {
                 color = speakerColor.copy(alpha = 0.15f)
             ) {
                 Text(
-                    entry.speakerLabel,
+                    firstEntry.speakerLabel,
                     style = MaterialTheme.typography.labelSmall,
                     color = speakerColor,
                     fontWeight = FontWeight.Bold,
@@ -423,16 +426,20 @@ private fun TranscriptDetailItem(entry: TranscriptEntry) {
             }
             Spacer(Modifier.width(8.dp))
             Text(
-                formatTimestamp(entry.timestampMs),
+                formatTimestamp(firstEntry.timestampMs),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.outline
             )
         }
         Spacer(Modifier.height(4.dp))
-        Text(
-            entry.text,
-            style = MaterialTheme.typography.bodyMedium
-        )
+        Column {
+            group.forEach { entry ->
+                Text(
+                    entry.text,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
     }
 }
 

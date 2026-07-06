@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -57,6 +58,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.scribesync.scribesync.data.TranscriptEntry
+import com.scribesync.scribesync.ui.components.groupConsecutiveBySpeaker
 import com.scribesync.scribesync.ui.viewmodel.MeetingViewModel
 import kotlinx.coroutines.delay
 
@@ -69,6 +71,7 @@ fun RecordingScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val transcriptEntries by viewModel.transcript.collectAsState()
+    val isTranscribing by viewModel.isTranscribing.collectAsState()
     
     val context = LocalContext.current
     var permissionsGranted by remember {
@@ -114,10 +117,11 @@ fun RecordingScreen(
     }
 
     val listState = rememberLazyListState()
+    val groupedEntries = remember(transcriptEntries) { groupConsecutiveBySpeaker(transcriptEntries) }
 
-    LaunchedEffect(transcriptEntries.size) {
-        if (transcriptEntries.isNotEmpty()) {
-            listState.animateScrollToItem(transcriptEntries.size - 1)
+    LaunchedEffect(groupedEntries.size) {
+        if (groupedEntries.isNotEmpty()) {
+            listState.animateScrollToItem(groupedEntries.size - 1)
         }
     }
 
@@ -147,7 +151,7 @@ fun RecordingScreen(
                 .padding(padding)
                 .fillMaxSize()
         ) {
-            RecordingStatusHeader(elapsedSeconds = elapsedSeconds, isRecording = isRecording)
+            RecordingStatusHeader(elapsedSeconds = elapsedSeconds, isRecording = isRecording, isTranscribing = isTranscribing)
             HorizontalDivider()
             
             // Show current state overlay if needed
@@ -166,8 +170,8 @@ fun RecordingScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    items(transcriptEntries) { entry ->
-                        TranscriptEntryItem(entry = entry)
+                    items(groupedEntries) { group ->
+                        TranscriptEntryItem(group = group)
                     }
                 }
             }
@@ -176,7 +180,7 @@ fun RecordingScreen(
 }
 
 @Composable
-private fun RecordingStatusHeader(elapsedSeconds: Int, isRecording: Boolean) {
+private fun RecordingStatusHeader(elapsedSeconds: Int, isRecording: Boolean, isTranscribing: Boolean) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -197,6 +201,24 @@ private fun RecordingStatusHeader(elapsedSeconds: Int, isRecording: Boolean) {
             color = if (isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
             fontWeight = FontWeight.Bold
         )
+        Spacer(Modifier.height(8.dp))
+        // Only occupies space while a phrase is actually being decoded, so it
+        // doesn't shift layout the rest of the time.
+        if (isTranscribing) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(12.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "Transcribing…",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
     }
 }
 
@@ -280,8 +302,9 @@ private fun PulsingMicIndicator(isRecording: Boolean) {
 }
 
 @Composable
-private fun TranscriptEntryItem(entry: TranscriptEntry) {
-    val speakerColor = when (entry.speakerLabel) {
+private fun TranscriptEntryItem(group: List<TranscriptEntry>) {
+    val speakerLabel = group.first().speakerLabel
+    val speakerColor = when (speakerLabel) {
         "Speaker 1" -> MaterialTheme.colorScheme.primary
         "Speaker 2" -> MaterialTheme.colorScheme.tertiary
         else -> MaterialTheme.colorScheme.secondary
@@ -297,7 +320,7 @@ private fun TranscriptEntryItem(entry: TranscriptEntry) {
             modifier = Modifier.padding(top = 2.dp)
         ) {
             Text(
-                entry.speakerLabel,
+                speakerLabel,
                 style = MaterialTheme.typography.labelSmall,
                 color = speakerColor,
                 fontWeight = FontWeight.Bold,
@@ -305,11 +328,14 @@ private fun TranscriptEntryItem(entry: TranscriptEntry) {
             )
         }
         Spacer(Modifier.width(8.dp))
-        Text(
-            entry.text,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f)
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            group.forEach { entry ->
+                Text(
+                    entry.text,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
     }
 }
 
