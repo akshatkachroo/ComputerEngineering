@@ -62,6 +62,7 @@ class ScribeSyncApplication : Application() {
     val summaryService by lazy { SummaryService(summaryModelManager, LlamaEngine()) }
     
     val audioDataFlow = MutableSharedFlow<FloatArray>(extraBufferCapacity = 256)
+    val micLevelFlow = MutableSharedFlow<Float>(extraBufferCapacity = 64)
 
     override fun onCreate() {
         super.onCreate()

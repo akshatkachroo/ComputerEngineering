@@ -44,11 +44,15 @@ class MeetingViewModel(
     private val networkObserver: NetworkObserver,
     private val summaryService: com.scribesync.scribesync.util.SummaryService,
     private val audioDataFlow: SharedFlow<FloatArray>,
+    private val micLevelFlow: SharedFlow<Float>,
     private val authRepository: AuthRepository,
     private val attendeeRequestRepository: AttendeeRequestRepository
 ) : AndroidViewModel(application) {
 
     companion object {
+        private const val MIC_SIGNAL_THRESHOLD = 0.003f
+        private const val MIC_WARNING_DELAY_MS = 2500L
+
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 val application = (this[APPLICATION_KEY] as ScribeSyncApplication)
@@ -60,6 +64,7 @@ class MeetingViewModel(
                     networkObserver = application.networkObserver,
                     summaryService = application.summaryService,
                     audioDataFlow = application.audioDataFlow,
+                    micLevelFlow = application.micLevelFlow,
                     authRepository = application.authRepository,
                     attendeeRequestRepository = application.attendeeRequestRepository
                 )
@@ -86,6 +91,12 @@ class MeetingViewModel(
     private val _isTranscribing = MutableStateFlow(false)
     val isTranscribing: StateFlow<Boolean> = _isTranscribing.asStateFlow()
 
+    private val _micInputLevel = MutableStateFlow(0f)
+    val micInputLevel: StateFlow<Float> = _micInputLevel.asStateFlow()
+
+    private val _isMicInputMissing = MutableStateFlow(false)
+    val isMicInputMissing: StateFlow<Boolean> = _isMicInputMissing.asStateFlow()
+
     private var currentMeetingId: String? = null
     private var nativeContextPtr: Long = 0
     private val whisperMutex = Mutex()
@@ -95,6 +106,7 @@ class MeetingViewModel(
     private var lastLocation: Pair<Double, Double>? = null
     private var audioChannel: Channel<FloatArray>? = null
     private var collectionJob: Job? = null
+    private var micLevelJob: Job? = null
     private var currentSpeakerNumber: Int = 1
 
     init {
@@ -115,10 +127,32 @@ class MeetingViewModel(
         lastLocation = null
         currentSpeakerNumber = 1
         _isTranscribing.value = false
+        _micInputLevel.value = 0f
+        _isMicInputMissing.value = false
         audioChannel = Channel(Channel.UNLIMITED)
 
         val intent = Intent(getApplication(), AudioCaptureService::class.java)
         getApplication<Application>().startForegroundService(intent)
+
+        micLevelJob?.cancel()
+        micLevelJob = viewModelScope.launch {
+            val recordingStartedAt = System.currentTimeMillis()
+            var lastSignalAt = recordingStartedAt
+            micLevelFlow.collect { rawLevel ->
+                val level = rawLevel.coerceIn(0f, 1f)
+                _micInputLevel.value = level
+
+                val now = System.currentTimeMillis()
+                if (level > MIC_SIGNAL_THRESHOLD) {
+                    lastSignalAt = now
+                    _isMicInputMissing.value = false
+                } else {
+                    _isMicInputMissing.value =
+                        now - recordingStartedAt > MIC_WARNING_DELAY_MS &&
+                            now - lastSignalAt > MIC_WARNING_DELAY_MS
+                }
+            }
+        }
 
         // Fetch the summary model (weights only - never meeting data) in the background
         // so it is usually ready by the time the meeting ends. Failures are retried and
@@ -343,6 +377,10 @@ class MeetingViewModel(
             // 1. Stop feeding new data and signal EOF
             collectionJob?.cancel()
             collectionJob = null
+            micLevelJob?.cancel()
+            micLevelJob = null
+            _micInputLevel.value = 0f
+            _isMicInputMissing.value = false
             audioChannel?.close()
             
             // 2. Wait for the transcription job to finish processing the remainder

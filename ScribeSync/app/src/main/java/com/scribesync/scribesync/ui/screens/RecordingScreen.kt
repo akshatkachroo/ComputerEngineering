@@ -31,10 +31,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -72,6 +74,8 @@ fun RecordingScreen(
     val uiState by viewModel.uiState.collectAsState()
     val transcriptEntries by viewModel.transcript.collectAsState()
     val isTranscribing by viewModel.isTranscribing.collectAsState()
+    val micInputLevel by viewModel.micInputLevel.collectAsState()
+    val isMicInputMissing by viewModel.isMicInputMissing.collectAsState()
     
     val context = LocalContext.current
     var permissionsGranted by remember {
@@ -151,7 +155,13 @@ fun RecordingScreen(
                 .padding(padding)
                 .fillMaxSize()
         ) {
-            RecordingStatusHeader(elapsedSeconds = elapsedSeconds, isRecording = isRecording, isTranscribing = isTranscribing)
+            RecordingStatusHeader(
+                elapsedSeconds = elapsedSeconds,
+                isRecording = isRecording,
+                isTranscribing = isTranscribing,
+                micInputLevel = micInputLevel,
+                isMicInputMissing = isMicInputMissing
+            )
             HorizontalDivider()
             
             // Show current state overlay if needed
@@ -180,7 +190,13 @@ fun RecordingScreen(
 }
 
 @Composable
-private fun RecordingStatusHeader(elapsedSeconds: Int, isRecording: Boolean, isTranscribing: Boolean) {
+private fun RecordingStatusHeader(
+    elapsedSeconds: Int,
+    isRecording: Boolean,
+    isTranscribing: Boolean,
+    micInputLevel: Float,
+    isMicInputMissing: Boolean
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -202,6 +218,12 @@ private fun RecordingStatusHeader(elapsedSeconds: Int, isRecording: Boolean, isT
             fontWeight = FontWeight.Bold
         )
         Spacer(Modifier.height(8.dp))
+        MicInputLevel(
+            level = micInputLevel,
+            isRecording = isRecording,
+            isInputMissing = isMicInputMissing
+        )
+        Spacer(Modifier.height(8.dp))
         // Only occupies space while a phrase is actually being decoded, so it
         // doesn't shift layout the rest of the time.
         if (isTranscribing) {
@@ -218,6 +240,58 @@ private fun RecordingStatusHeader(elapsedSeconds: Int, isRecording: Boolean, isT
                     color = MaterialTheme.colorScheme.primary
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun MicInputLevel(level: Float, isRecording: Boolean, isInputMissing: Boolean) {
+    val normalizedLevel = (level * 12f).coerceIn(0f, 1f)
+    val activeColor = if (isInputMissing) {
+        MaterialTheme.colorScheme.error
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 40.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = if (isInputMissing) Icons.Default.Warning else Icons.Default.Mic,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = activeColor
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                when {
+                    isInputMissing -> "No microphone input detected"
+                    isRecording -> "Mic input"
+                    else -> "Mic idle"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = activeColor,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        LinearProgressIndicator(
+            progress = { normalizedLevel },
+            modifier = Modifier.fillMaxWidth(),
+            color = activeColor,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+        if (isInputMissing) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Check emulator microphone or macOS microphone permission.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error
+            )
         }
     }
 }

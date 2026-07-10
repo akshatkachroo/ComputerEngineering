@@ -88,6 +88,9 @@ class AudioCaptureService : Service() {
                     } else {
                         android.util.Log.w("AudioCaptureService", "Captured 100% silence (all zeros)")
                     }
+                    (application as ScribeSyncApplication).micLevelFlow.emit(
+                        maxVal.toFloat() / Short.MAX_VALUE
+                    )
 
                     val floatBuffer = FloatArray(readResult) { buffer[it].toFloat() / Short.MAX_VALUE }
                     // Log to verify data is being captured
