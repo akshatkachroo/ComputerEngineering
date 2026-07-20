@@ -333,25 +333,8 @@ class MeetingViewModel(
             val duration = ((System.currentTimeMillis() - startTime) / 1000).toInt()
             currentMeetingId?.let { id ->
                 repository.getMeetingById(id)?.let { currentMeeting ->
-                    var fullTranscript = transcript.value.joinToString("\n") { "${it.speakerLabel}: ${it.text}" }
-                    
-                    // MOCK DATA INJECTION FOR TESTING AI EXTRACTION
-                    if (fullTranscript.isBlank()) {
-                        fullTranscript = """
-                            Speaker 1: Hello everyone, let's start the planning sync.
-                            Speaker 1: I will send updated budget proposal to Sarah by Friday.
-                            Speaker 1: Can you schedule follow up with design team next week?
-                            Speaker 1: We should review competitor analysis doc and add comments by tomorrow.
-                            Speaker 1: Please share recording with stakeholders who missed the call by end of the week.
-                        """.trimIndent()
-                        Log.d("MeetingViewModel", "Using mock transcript for AI testing")
-                    }
-
-                    val preview = if (transcript.value.isNotEmpty()) {
-                        transcript.value.take(3).joinToString(" ") { it.text }
-                    } else {
-                        "Mock recording for AI testing purposes."
-                    }
+                    val fullTranscript = transcript.value.joinToString("\n") { "${it.speakerLabel}: ${it.text}" }
+                    val preview = transcript.value.take(3).joinToString(" ") { it.text }
                     
                     val summary = summaryService.generateSummary(fullTranscript)
                     val extractedActionItems = summaryService.extractActionItems(fullTranscript)
