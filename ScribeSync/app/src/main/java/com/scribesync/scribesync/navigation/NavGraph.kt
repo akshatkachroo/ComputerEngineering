@@ -27,12 +27,14 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.scribesync.scribesync.ui.screens.CalendarScreen
+import com.scribesync.scribesync.ui.screens.ChatScreen
 import com.scribesync.scribesync.ui.screens.ContactsScreen
 import com.scribesync.scribesync.ui.screens.HomeScreen
 import com.scribesync.scribesync.ui.screens.MeetingDetailScreen
 import com.scribesync.scribesync.ui.screens.RecordingScreen
 import com.scribesync.scribesync.ui.screens.SettingsScreen
 import com.scribesync.scribesync.ui.viewmodel.AuthViewModel
+import com.scribesync.scribesync.ui.viewmodel.ChatViewModel
 import com.scribesync.scribesync.ui.viewmodel.MeetingViewModel
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -47,6 +49,9 @@ sealed class Screen(val route: String) {
     }
     object MeetingDetail : Screen("meeting_detail/{meetingId}") {
         fun createRoute(meetingId: String) = "meeting_detail/$meetingId"
+    }
+    object Chat : Screen("chat/{meetingId}") {
+        fun createRoute(meetingId: String) = "chat/$meetingId"
     }
     object Calendar : Screen("calendar")
     object Contacts : Screen("contacts")
@@ -156,7 +161,23 @@ fun NavGraph(viewModel: MeetingViewModel, authViewModel: AuthViewModel) {
                     viewModel = viewModel,
                     meetingId = meetingId,
                     onBack = { navController.popBackStack() },
-                    authViewModel = authViewModel
+                    authViewModel = authViewModel,
+                    onAskAboutMeeting = { id ->
+                        navController.navigate(Screen.Chat.createRoute(id))
+                    }
+                )
+            }
+            composable(
+                route = Screen.Chat.route,
+                arguments = listOf(navArgument("meetingId") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val meetingId = backStackEntry.arguments?.getString("meetingId") ?: ""
+                val chatViewModel: ChatViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+                    factory = ChatViewModel.factory(meetingId)
+                )
+                ChatScreen(
+                    viewModel = chatViewModel,
+                    onBack = { navController.popBackStack() }
                 )
             }
         }
