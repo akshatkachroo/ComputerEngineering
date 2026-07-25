@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -72,6 +73,7 @@ fun MeetingDetailScreen(
     meetingId: String,
     onBack: () -> Unit,
     authViewModel: AuthViewModel,
+    onAskAboutMeeting: (String) -> Unit,
     contactsViewModel: ContactsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(factory = ContactsViewModel.Factory)
 ) {
     val meetings by viewModel.repository.allMeetings.collectAsState(initial = emptyList())
@@ -215,6 +217,9 @@ fun MeetingDetailScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { onAskAboutMeeting(meetingId) }) {
+                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "Ask about this meeting")
+                    }
                     IconButton(onClick = { showEditDialog = true }) {
                         Icon(Icons.Default.Edit, contentDescription = "Edit Title")
                     }
