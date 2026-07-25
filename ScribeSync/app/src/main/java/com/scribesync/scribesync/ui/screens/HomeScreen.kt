@@ -71,18 +71,18 @@ fun HomeScreen(
     var meetingTitle by remember { mutableStateOf("") }
     var searchQuery by remember { mutableStateOf("") }
     var selectedTag by remember { mutableStateOf<String?>(null) }
+
+    val searchResults by remember(searchQuery) {
+        viewModel.repository.searchMeetings(searchQuery)
+    }.collectAsState(initial = emptyList())
     
     val allTags = remember(meetings) {
         meetings.flatMap { it.tags }.distinct().sorted()
     }
 
-    val filteredMeetings = remember(meetings, searchQuery, selectedTag) {
-        meetings.filter { meeting ->
-            val matchesSearch = meeting.title.contains(searchQuery, ignoreCase = true) ||
-                                meeting.transcriptPreview.contains(searchQuery, ignoreCase = true) ||
-                                (meeting.summary?.contains(searchQuery, ignoreCase = true) ?: false)
-            val matchesTag = selectedTag == null || meeting.tags.contains(selectedTag)
-            matchesSearch && matchesTag
+    val filteredMeetings = remember(searchResults, selectedTag) {
+        searchResults.filter { result ->
+            selectedTag == null || result.meeting.tags.contains(selectedTag)
         }
     }
     
@@ -226,10 +226,11 @@ fun HomeScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        items(filteredMeetings) { meeting ->
+                        items(filteredMeetings, key = { it.meeting.id }) { result ->
                             MeetingCard(
-                                meeting = meeting,
-                                onClick = { onMeetingClick(meeting.id) }
+                                meeting = result.meeting,
+                                matchedTranscriptText = result.matchedTranscriptText,
+                                onClick = { onMeetingClick(result.meeting.id) }
                             )
                         }
                     }
@@ -249,7 +250,11 @@ fun HomeScreen(
 }
 
 @Composable
-private fun MeetingCard(meeting: Meeting, onClick: () -> Unit) {
+private fun MeetingCard(
+    meeting: Meeting,
+    matchedTranscriptText: String?,
+    onClick: () -> Unit
+) {
     val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
 
     Card(
@@ -318,10 +323,30 @@ private fun MeetingCard(meeting: Meeting, onClick: () -> Unit) {
                     color = MaterialTheme.colorScheme.outline
                 )
             }
-            if (meeting.transcriptPreview.isNotEmpty()) {
+            val previewText = matchedTranscriptText?.takeIf { it.isNotBlank() }
+                ?: meeting.transcriptPreview.takeIf { it.isNotBlank() }
+            if (previewText != null) {
                 Spacer(Modifier.height(8.dp))
+                if (matchedTranscriptText != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "Transcript match",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Spacer(Modifier.height(2.dp))
+                }
                 Text(
-                    meeting.transcriptPreview,
+                    previewText,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 2,
                     color = MaterialTheme.colorScheme.onSurfaceVariant

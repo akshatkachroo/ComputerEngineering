@@ -7,6 +7,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 
 class TranscriptRepository(
@@ -15,6 +16,18 @@ class TranscriptRepository(
 ) {
     // Flow is observed on IO thread to prevent UI hangs during startup queries
     val allMeetings: Flow<List<Meeting>> = meetingDao.getAllMeetings().flowOn(Dispatchers.IO)
+
+    fun searchMeetings(query: String): Flow<List<MeetingSearchResult>> {
+        val normalizedQuery = query.trim()
+        if (normalizedQuery.isEmpty()) {
+            return allMeetings.map { meetings ->
+                meetings.map { meeting -> MeetingSearchResult(meeting) }
+            }
+        }
+
+        return meetingDao.searchMeetings(normalizedQuery.toSqlLikePattern())
+            .flowOn(Dispatchers.IO)
+    }
 
     fun getTranscript(meetingId: String): Flow<List<TranscriptEntry>> {
         Log.d("TranscriptRepository", "getTranscript requested for: $meetingId")
@@ -104,4 +117,16 @@ class TranscriptRepository(
 
         awaitClose { registration.remove() }
     }
+}
+
+internal fun String.toSqlLikePattern(): String {
+    val escaped = buildString(length) {
+        for (character in this@toSqlLikePattern) {
+            if (character == '\\' || character == '%' || character == '_') {
+                append('\\')
+            }
+            append(character)
+        }
+    }
+    return "%$escaped%"
 }

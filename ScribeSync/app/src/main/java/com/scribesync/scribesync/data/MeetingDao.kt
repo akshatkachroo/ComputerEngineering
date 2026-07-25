@@ -12,6 +12,34 @@ interface MeetingDao {
     @Query("SELECT * FROM meetings ORDER BY date DESC")
     fun getAllMeetings(): Flow<List<Meeting>>
 
+    @Query(
+        """
+        SELECT meetings.*,
+            (
+                SELECT transcript_entries.text
+                FROM transcript_entries
+                WHERE transcript_entries.meetingId = meetings.id
+                    AND transcript_entries.text LIKE :pattern ESCAPE '\'
+                ORDER BY transcript_entries.timestampMs ASC
+                LIMIT 1
+            ) AS matchedTranscriptText
+        FROM meetings
+        WHERE meetings.title LIKE :pattern ESCAPE '\'
+            OR meetings.transcriptPreview LIKE :pattern ESCAPE '\'
+            OR COALESCE(meetings.summary, '') LIKE :pattern ESCAPE '\'
+            OR meetings.ownerName LIKE :pattern ESCAPE '\'
+            OR meetings.tags LIKE :pattern ESCAPE '\'
+            OR EXISTS (
+                SELECT 1
+                FROM transcript_entries
+                WHERE transcript_entries.meetingId = meetings.id
+                    AND transcript_entries.text LIKE :pattern ESCAPE '\'
+            )
+        ORDER BY meetings.date DESC
+        """
+    )
+    fun searchMeetings(pattern: String): Flow<List<MeetingSearchResult>>
+
     @Query("SELECT * FROM meetings WHERE id = :id")
     suspend fun getMeetingById(id: String): Meeting?
 

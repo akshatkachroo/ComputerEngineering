@@ -2,6 +2,7 @@ package com.scribesync.scribesync.ui.screens
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,6 +26,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -256,6 +259,15 @@ fun MeetingDetailScreen(
                 MeetingInfoSection(meeting = meeting)
             }
 
+            if (meeting.latitude != null && meeting.longitude != null) {
+                item {
+                    MeetingLocationSection(
+                        meeting = meeting,
+                        onOpenInMaps = { openMeetingLocation(context, meeting) }
+                    )
+                }
+            }
+
             item {
                 Text("Tags", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
@@ -411,6 +423,9 @@ private fun buildMeetingExport(meeting: Meeting, transcript: List<TranscriptEntr
         appendLine("- Date: ${dateFormat.format(meeting.date)}")
         appendLine("- Duration: ${formatDuration(meeting.durationSeconds)}")
         appendLine("- Owner: ${meeting.ownerName}")
+        if (meeting.latitude != null && meeting.longitude != null) {
+            appendLine("- Location: ${formatCoordinates(meeting.latitude, meeting.longitude)}")
+        }
         if (meeting.tags.isNotEmpty()) {
             appendLine("- Tags: ${meeting.tags.joinToString(", ")}")
         }
@@ -422,6 +437,28 @@ private fun buildMeetingExport(meeting: Meeting, transcript: List<TranscriptEntr
         appendLine("## Transcript")
         appendLine()
         appendLine(transcriptText)
+    }
+}
+
+private fun openMeetingLocation(context: Context, meeting: Meeting) {
+    val latitude = meeting.latitude ?: return
+    val longitude = meeting.longitude ?: return
+    val coordinates = "$latitude,$longitude"
+    val label = Uri.encode(meeting.title)
+    val mapIntent = Intent(
+        Intent.ACTION_VIEW,
+        Uri.parse("geo:$coordinates?q=$coordinates($label)")
+    )
+
+    runCatching {
+        context.startActivity(mapIntent)
+    }.onFailure {
+        context.startActivity(
+            Intent(
+                Intent.ACTION_VIEW,
+                Uri.parse("https://www.google.com/maps/search/?api=1&query=$coordinates")
+            )
+        )
     }
 }
 
@@ -563,6 +600,45 @@ private fun MeetingInfoSection(meeting: com.scribesync.scribesync.data.Meeting) 
 }
 
 @Composable
+private fun MeetingLocationSection(
+    meeting: Meeting,
+    onOpenInMaps: () -> Unit
+) {
+    val latitude = meeting.latitude ?: return
+    val longitude = meeting.longitude ?: return
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            Icons.Default.LocationOn,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                "Recorded location",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                formatCoordinates(latitude, longitude),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+        IconButton(onClick = onOpenInMaps) {
+            Icon(Icons.Default.Map, contentDescription = "Open recorded location in maps")
+        }
+    }
+}
+
+@Composable
 private fun TranscriptDetailItem(group: List<TranscriptEntry>) {
     val firstEntry = group.first()
     val speakerColor = when (firstEntry.speakerLabel) {
@@ -665,4 +741,8 @@ private fun formatTimestamp(ms: Long): String {
     val m = totalSeconds / 60
     val s = totalSeconds % 60
     return "%d:%02d".format(m, s)
+}
+
+private fun formatCoordinates(latitude: Double, longitude: Double): String {
+    return String.format(Locale.US, "%.5f, %.5f", latitude, longitude)
 }
