@@ -7,8 +7,8 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 
 @Database(
-    entities = [Meeting::class, TranscriptEntry::class, UserProfile::class, Contact::class],
-    version = 8,
+    entities = [Meeting::class, TranscriptEntry::class, ActionItem::class, UserProfile::class, Contact::class],
+    version = 13,
     exportSchema = false
 )
 @TypeConverters(DateConverters::class, TagsConverter::class)
@@ -28,7 +28,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "scribesync_database"
                 )
-                .fallbackToDestructiveMigration() // Added for development ease
+                .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
                 instance

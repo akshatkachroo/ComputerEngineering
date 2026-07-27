@@ -79,6 +79,19 @@ class TranscriptRepository(
         }
     }
 
+    // Action Items
+    fun getActionItems(meetingId: String): Flow<List<ActionItem>> = 
+        meetingDao.getActionItemsForMeeting(meetingId).flowOn(Dispatchers.IO)
+
+    val allConfirmedActionItems: Flow<List<ActionItem>> = 
+        meetingDao.getAllConfirmedActionItems().flowOn(Dispatchers.IO)
+
+    suspend fun saveActionItem(actionItem: ActionItem) = meetingDao.insertActionItem(actionItem)
+    
+    suspend fun updateActionItem(actionItem: ActionItem) = meetingDao.updateActionItem(actionItem)
+    
+    suspend fun deleteActionItem(id: Long) = meetingDao.deleteActionItem(id)
+
     // Live - lets a meeting's creator learn when an invited attendee accepts
     // on their own device, since sync elsewhere in this repository is push-only.
     // Only meant to be collected while the owner has this meeting open.

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
@@ -54,6 +55,9 @@ sealed class Screen(val route: String) {
         fun createRoute(meetingId: String) = "chat/$meetingId"
     }
     object Calendar : Screen("calendar")
+    object TodoList : Screen("todo?meetingId={meetingId}") {
+        fun createRoute(meetingId: String? = null) = if (meetingId != null) "todo?meetingId=$meetingId" else "todo"
+    }
     object Contacts : Screen("contacts")
     object Settings : Screen("settings")
 }
@@ -62,6 +66,7 @@ private data class BottomNavTab(val screen: Screen, val label: String, val icon:
 
 private val bottomNavTabs = listOf(
     BottomNavTab(Screen.Home, "Meetings", Icons.Default.Mic),
+    BottomNavTab(Screen.TodoList, "Tasks", Icons.Default.CheckCircle),
     BottomNavTab(Screen.Calendar, "Calendar", Icons.Default.CalendarToday),
     BottomNavTab(Screen.Contacts, "Contacts", Icons.Default.People),
     BottomNavTab(Screen.Settings, "Settings", Icons.Default.Settings)
@@ -133,6 +138,21 @@ fun NavGraph(viewModel: MeetingViewModel, authViewModel: AuthViewModel) {
             composable(Screen.Contacts.route) {
                 ContactsScreen()
             }
+            composable(
+                route = Screen.TodoList.route,
+                arguments = listOf(navArgument("meetingId") { 
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                })
+            ) { backStackEntry ->
+                val meetingId = backStackEntry.arguments?.getString("meetingId")
+                com.scribesync.scribesync.ui.screens.TodoScreen(
+                    viewModel = viewModel,
+                    meetingId = meetingId,
+                    onBack = { navController.popBackStack() }
+                )
+            }
             composable(Screen.Calendar.route) {
                 CalendarScreen(
                     viewModel = viewModel,
@@ -164,6 +184,9 @@ fun NavGraph(viewModel: MeetingViewModel, authViewModel: AuthViewModel) {
                     authViewModel = authViewModel,
                     onAskAboutMeeting = { id ->
                         navController.navigate(Screen.Chat.createRoute(id))
+                    },
+                    onSeeTasks = { id ->
+                        navController.navigate(Screen.TodoList.createRoute(id))
                     }
                 )
             }

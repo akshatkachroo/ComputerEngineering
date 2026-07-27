@@ -20,49 +20,22 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.scribesync.scribesync.data.Contact
+import com.scribesync.scribesync.data.Meeting
 import com.scribesync.scribesync.data.TranscriptEntry
-import com.scribesync.scribesync.ui.components.OwnerBadge
-import com.scribesync.scribesync.ui.components.groupConsecutiveBySpeaker
-import com.scribesync.scribesync.ui.components.SyncStatusBadge
-import com.scribesync.scribesync.util.SummaryModelManager
-import com.scribesync.scribesync.util.SummaryService
+import com.scribesync.scribesync.ui.components.*
 import com.scribesync.scribesync.ui.viewmodel.AuthViewModel
 import com.scribesync.scribesync.ui.viewmodel.ContactsViewModel
 import com.scribesync.scribesync.ui.viewmodel.MeetingViewModel
+import com.scribesync.scribesync.util.SummaryModelManager
+import com.scribesync.scribesync.util.SummaryService
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -74,6 +47,7 @@ fun MeetingDetailScreen(
     onBack: () -> Unit,
     authViewModel: AuthViewModel,
     onAskAboutMeeting: (String) -> Unit,
+    onSeeTasks: (String) -> Unit,
     contactsViewModel: ContactsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(factory = ContactsViewModel.Factory)
 ) {
     val meetings by viewModel.repository.allMeetings.collectAsState(initial = emptyList())
@@ -81,25 +55,22 @@ fun MeetingDetailScreen(
     val transcript by viewModel.repository.getTranscript(meetingId).collectAsState(initial = emptyList())
     val groupedTranscript = remember(transcript) { groupConsecutiveBySpeaker(transcript) }
     val allContacts by contactsViewModel.contacts.collectAsState()
+    val actionItems by viewModel.repository.getActionItems(meetingId).collectAsState(initial = emptyList())
+    val confirmedCount = remember(actionItems) { actionItems.count { it.isConfirmed } }
+
     val attendees = allContacts.filter { it.contactUserId in (meeting?.attendeeIds ?: emptyList()) }
     val currentUser by authViewModel.currentUser.collectAsState()
     val isOwner = meeting != null && meeting.ownerId.isNotEmpty() && meeting.ownerId == currentUser?.uid
+    
     val summarizingMeetingId by viewModel.summarizingMeetingId.collectAsState()
     val summaryPhase by viewModel.summaryPhase.collectAsState()
     val modelDownloadState by viewModel.modelDownloadState.collectAsState()
-
-    LaunchedEffect(meetingId, isOwner) {
-        if (isOwner) {
-            viewModel.repository.observeRemoteAttendeeIds(meetingId).collect { remoteIds ->
-                viewModel.mergeRemoteAttendeeIds(meetingId, remoteIds)
-            }
-        }
-    }
 
     var showEditDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showAddTagDialog by remember { mutableStateOf(false) }
     var showAddAttendeeDialog by remember { mutableStateOf(false) }
+    
     var newTitle by remember { mutableStateOf(meeting?.title ?: "") }
     var newTag by remember { mutableStateOf("") }
 
@@ -126,14 +97,10 @@ fun MeetingDetailScreen(
                 TextButton(onClick = {
                     viewModel.updateMeetingTitle(meetingId, newTitle)
                     showEditDialog = false
-                }) {
-                    Text("Save")
-                }
+                }) { Text("Save") }
             },
             dismissButton = {
-                TextButton(onClick = { showEditDialog = false }) {
-                    Text("Cancel")
-                }
+                TextButton(onClick = { showEditDialog = false }) { Text("Cancel") }
             }
         )
     }
@@ -159,14 +126,10 @@ fun MeetingDetailScreen(
                     }
                     newTag = ""
                     showAddTagDialog = false
-                }) {
-                    Text("Add")
-                }
+                }) { Text("Add") }
             },
             dismissButton = {
-                TextButton(onClick = { showAddTagDialog = false }) {
-                    Text("Cancel")
-                }
+                TextButton(onClick = { showAddTagDialog = false }) { Text("Cancel") }
             }
         )
     }
@@ -177,8 +140,6 @@ fun MeetingDetailScreen(
             currentAttendeeIds = meeting.attendeeIds.toSet(),
             onDismiss = { showAddAttendeeDialog = false },
             onAddAttendee = { contact ->
-                // This sends a request rather than adding them directly -
-                // they show up as an attendee only once they accept.
                 viewModel.sendAttendeeRequest(meetingId, contact.contactUserId)
                 showAddAttendeeDialog = false
             }
@@ -189,20 +150,16 @@ fun MeetingDetailScreen(
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("Delete Recording") },
-            text = { Text("Are you sure you want to delete this recording? This action cannot be undone.") },
+            text = { Text("Are you sure? This cannot be undone.") },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.deleteMeeting(meetingId)
                     showDeleteDialog = false
                     onBack()
-                }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Cancel")
-                }
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
             }
         )
     }
@@ -218,7 +175,7 @@ fun MeetingDetailScreen(
                 },
                 actions = {
                     IconButton(onClick = { onAskAboutMeeting(meetingId) }) {
-                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "Ask about this meeting")
+                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "Ask AI")
                     }
                     IconButton(onClick = { showEditDialog = true }) {
                         Icon(Icons.Default.Edit, contentDescription = "Edit Title")
@@ -227,126 +184,69 @@ fun MeetingDetailScreen(
                         Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
             )
         }
     ) { padding ->
         LazyColumn(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier.padding(padding).fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            item { MeetingHeaderSection(meeting = meeting) }
+
             item {
-                MeetingInfoSection(meeting = meeting)
+                TasksButton(
+                    taskCount = confirmedCount,
+                    onClick = { onSeeTasks(meetingId) }
+                )
             }
 
             item {
                 Text("Tags", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     meeting.tags.forEach { tag ->
-                        AssistChip(
-                            onClick = { },
-                            label = { Text(tag) },
-                            trailingIcon = {
-                                Icon(
-                                    Icons.Default.Close,
-                                    contentDescription = "Remove tag",
-                                    modifier = Modifier
-                                        .size(AssistChipDefaults.IconSize)
-                                        .clickable {
-                                            val updatedTags = meeting.tags.filter { it != tag }
-                                            viewModel.updateMeetingTags(meetingId, updatedTags)
-                                        }
-                                )
-                            }
-                        )
+                        AssistChip(onClick = { }, label = { Text(tag) }, trailingIcon = {
+                            Icon(Icons.Default.Close, null, modifier = Modifier.size(AssistChipDefaults.IconSize).clickable {
+                                viewModel.updateMeetingTags(meetingId, meeting.tags.filter { it != tag })
+                            })
+                        })
                     }
-                    AssistChip(
-                        onClick = { showAddTagDialog = true },
-                        label = { Text("Add Tag") },
-                        leadingIcon = {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(AssistChipDefaults.IconSize))
-                        }
-                    )
+                    AssistChip(onClick = { showAddTagDialog = true }, label = { Text("Add Tag") }, leadingIcon = { Icon(Icons.Default.Add, null, modifier = Modifier.size(AssistChipDefaults.IconSize)) })
                 }
             }
 
             item {
                 Text("Attendees", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     attendees.forEach { contact ->
                         AssistChip(
                             onClick = { },
                             label = { Text(contact.username) },
                             trailingIcon = if (isOwner) {
                                 {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = "Remove attendee",
-                                        modifier = Modifier
-                                            .size(AssistChipDefaults.IconSize)
-                                            .clickable {
-                                                viewModel.updateMeetingAttendees(
-                                                    meetingId,
-                                                    meeting.attendeeIds.filter { it != contact.contactUserId }
-                                                )
-                                            }
-                                    )
+                                    Icon(Icons.Default.Close, null, modifier = Modifier.size(AssistChipDefaults.IconSize).clickable {
+                                        viewModel.updateMeetingAttendees(meetingId, meeting.attendeeIds.filter { it != contact.contactUserId })
+                                    })
                                 }
                             } else null
                         )
                     }
-                    AssistChip(
-                        onClick = { showAddAttendeeDialog = true },
-                        label = { Text("Add Attendee") },
-                        leadingIcon = {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(AssistChipDefaults.IconSize))
-                        }
-                    )
+                    AssistChip(onClick = { showAddAttendeeDialog = true }, label = { Text("Add Attendee") }, leadingIcon = { Icon(Icons.Default.Add, null, modifier = Modifier.size(AssistChipDefaults.IconSize)) })
                 }
             }
 
             if (!meeting.summary.isNullOrEmpty()) {
-                item {
-                    SummarySection(summary = meeting.summary)
-                }
+                item { SummarySection(summary = meeting.summary) }
             } else if (summarizingMeetingId == meetingId) {
-                item {
-                    SummaryInProgressSection(
-                        phase = summaryPhase,
-                        downloadState = modelDownloadState
-                    )
-                }
+                item { SummaryInProgressSection(phase = summaryPhase, downloadState = modelDownloadState) }
             }
 
-            item {
-                Spacer(Modifier.height(8.dp))
-                HorizontalDivider()
-            }
+            item { HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant) }
+            item { Text("Transcript", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
 
             if (transcript.isEmpty()) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 64.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("No transcript available", color = MaterialTheme.colorScheme.outline)
-                    }
-                }
+                item { Box(Modifier.fillMaxWidth().padding(vertical = 64.dp), Alignment.Center) { Text("No transcript available", color = MaterialTheme.colorScheme.outline) } }
             } else {
                 items(groupedTranscript) { group ->
                     TranscriptDetailItem(group = group)
@@ -356,53 +256,40 @@ fun MeetingDetailScreen(
     }
 }
 
-/**
- * Shown while the on-device summary for this meeting is still being produced.
- * The first summary may be preceded by a one-time model download.
- */
 @Composable
-private fun SummaryInProgressSection(
-    phase: SummaryService.Phase,
-    downloadState: SummaryModelManager.DownloadState
-) {
+fun MeetingHeaderSection(meeting: Meeting) {
+    Column {
+        Text(meeting.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Today at ${SimpleDateFormat("h:mm a", Locale.getDefault()).format(meeting.date)} · ${formatDurationForHeader(meeting.durationSeconds)} recording",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.outline
+        )
+        Spacer(Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SyncStatusBadge(isSynced = meeting.isSynced)
+            Spacer(Modifier.width(8.dp))
+            OwnerBadge(ownerName = meeting.ownerName)
+        }
+    }
+}
+
+@Composable
+private fun SummaryInProgressSection(phase: SummaryService.Phase, downloadState: SummaryModelManager.DownloadState) {
     val label = when {
-        downloadState is SummaryModelManager.DownloadState.Downloading ->
-            "Downloading summary model… ${downloadState.percent}% (one-time, ~1.1 GB)"
-        downloadState is SummaryModelManager.DownloadState.Verifying ->
-            "Verifying summary model…"
-        phase is SummaryService.Phase.LoadingModel ->
-            "Loading summary model…"
-        phase is SummaryService.Phase.Generating ->
-            "Generating summary on-device…"
+        downloadState is SummaryModelManager.DownloadState.Downloading -> "Downloading model… ${downloadState.percent}%"
+        downloadState is SummaryModelManager.DownloadState.Verifying -> "Verifying model…"
+        phase is SummaryService.Phase.LoadingModel -> "Loading model…"
+        phase is SummaryService.Phase.Generating -> "Generating summary…"
         else -> "Preparing summary…"
     }
-    androidx.compose.material3.Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = androidx.compose.material3.CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
-        )
-    ) {
+    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f))) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
-                Text(
-                    label,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            if (downloadState is SummaryModelManager.DownloadState.Downloading) {
-                Spacer(Modifier.height(8.dp))
-                LinearProgressIndicator(
-                    progress = { downloadState.percent / 100f },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Text(label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -410,86 +297,18 @@ private fun SummaryInProgressSection(
 
 @Composable
 private fun SummarySection(summary: String) {
-    // A failed generation is stored with a marker prefix so it renders as an
-    // explicit error state instead of masquerading as a real summary.
     val failed = summary.startsWith(SummaryService.FAILED_PREFIX)
-    val body = if (failed) {
-        "Summary generation failed: ${summary.removePrefix(SummaryService.FAILED_PREFIX).trim()}"
-    } else {
-        summary
-    }
-    androidx.compose.material3.Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = androidx.compose.material3.CardDefaults.cardColors(
-            containerColor = if (failed) {
-                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
-            } else {
-                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
-            }
-        )
-    ) {
+    val body = if (failed) "Summary failed: ${summary.removePrefix(SummaryService.FAILED_PREFIX).trim()}" else summary
+    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (failed) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f))) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = if (failed) {
-                        androidx.compose.material.icons.Icons.Default.Warning
-                    } else {
-                        androidx.compose.material.icons.Icons.Default.Edit
-                    },
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                )
+                Icon(imageVector = if (failed) Icons.Default.Warning else Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp), tint = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
-                Text(
-                    if (failed) "AI Summary Unavailable" else "AI Summary",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
+                Text(if (failed) "AI Summary Unavailable" else "AI Summary", style = MaterialTheme.typography.titleSmall, color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.height(8.dp))
-            Text(
-                body,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (failed) {
-                    MaterialTheme.colorScheme.onErrorContainer
-                } else {
-                    MaterialTheme.colorScheme.onSecondaryContainer
-                }
-            )
+            Text(body, style = MaterialTheme.typography.bodyMedium, color = if (failed) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer)
         }
-    }
-}
-
-@Composable
-private fun MeetingInfoSection(meeting: com.scribesync.scribesync.data.Meeting) {
-    val dateFormat = SimpleDateFormat("EEEE, MMMM d, yyyy 'at' h:mm a", Locale.getDefault())
-    
-    Column(modifier = Modifier.padding(16.dp)) {
-        Text(
-            meeting.title,
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            dateFormat.format(meeting.date),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.outline
-        )
-        Spacer(Modifier.height(4.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "Duration: ${formatDuration(meeting.durationSeconds)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline
-            )
-            Spacer(Modifier.width(8.dp))
-            SyncStatusBadge(isSynced = meeting.isSynced)
-        }
-        Spacer(Modifier.height(4.dp))
-        OwnerBadge(ownerName = meeting.ownerName)
     }
 }
 
@@ -501,37 +320,16 @@ private fun TranscriptDetailItem(group: List<TranscriptEntry>) {
         "Speaker 2" -> MaterialTheme.colorScheme.tertiary
         else -> MaterialTheme.colorScheme.secondary
     }
-
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(
-                shape = MaterialTheme.shapes.extraSmall,
-                color = speakerColor.copy(alpha = 0.15f)
-            ) {
-                Text(
-                    firstEntry.speakerLabel,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = speakerColor,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                )
+            Surface(shape = MaterialTheme.shapes.extraSmall, color = speakerColor.copy(alpha = 0.15f) ) {
+                Text(firstEntry.speakerLabel, style = MaterialTheme.typography.labelSmall, color = speakerColor, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
             }
             Spacer(Modifier.width(8.dp))
-            Text(
-                formatTimestamp(firstEntry.timestampMs),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline
-            )
+            Text(formatTimestampDetail(firstEntry.timestampMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
         }
         Spacer(Modifier.height(4.dp))
-        Column {
-            group.forEach { entry ->
-                Text(
-                    entry.text,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-        }
+        group.forEach { entry -> Text(entry.text, style = MaterialTheme.typography.bodyMedium) }
     }
 }
 
@@ -584,14 +382,14 @@ private fun AddAttendeeDialog(
     )
 }
 
-private fun formatDuration(seconds: Int): String {
+private fun formatDurationForHeader(seconds: Int): String {
     val h = seconds / 3600
     val m = (seconds % 3600) / 60
     val s = seconds % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
-private fun formatTimestamp(ms: Long): String {
+private fun formatTimestampDetail(ms: Long): String {
     val totalSeconds = (ms / 1000).toInt()
     val m = totalSeconds / 60
     val s = totalSeconds % 60

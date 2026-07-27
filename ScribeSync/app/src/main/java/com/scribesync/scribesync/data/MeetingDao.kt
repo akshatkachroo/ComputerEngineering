@@ -45,4 +45,20 @@ interface MeetingDao {
 
     @Query("SELECT * FROM meetings WHERE tags LIKE '%' || :tag || '%'")
     fun getMeetingsByTag(tag: String): Flow<List<Meeting>>
+
+    // Action Items
+    @Query("SELECT * FROM action_items WHERE meetingId = :meetingId ORDER BY createdAt ASC")
+    fun getActionItemsForMeeting(meetingId: String): Flow<List<ActionItem>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertActionItem(actionItem: ActionItem)
+
+    @Update
+    suspend fun updateActionItem(actionItem: ActionItem)
+
+    @Query("DELETE FROM action_items WHERE id = :id")
+    suspend fun deleteActionItem(id: Long)
+
+    @Query("SELECT * FROM action_items WHERE isConfirmed = 1")
+    fun getAllConfirmedActionItems(): Flow<List<ActionItem>>
 }
