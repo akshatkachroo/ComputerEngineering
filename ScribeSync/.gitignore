@@ -40,3 +40,7 @@ proguard/
 
 # Google Services
 google-services.json
+
+# Large AI Model Files (Whisper/Llama)
+app/src/main/assets/models/*.bin
+app/src/main/assets/models/*.gguf

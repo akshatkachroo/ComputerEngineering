@@ -29,9 +29,11 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.consumeAsFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Date
@@ -162,7 +164,10 @@ class MeetingViewModel(
             )
             val meetingId = newMeeting.id
             currentMeetingId = meetingId
-            repository.saveMeeting(newMeeting)
+            // Use withContext to ensure the meeting is fully saved before proceeding
+            withContext(Dispatchers.IO) {
+                repository.saveMeeting(newMeeting)
+            }
 
             // Update meeting with location when it's ready
             launch {
@@ -176,7 +181,7 @@ class MeetingViewModel(
 
             launch(Dispatchers.Default) {
                 if (nativeContextPtr == 0L) {
-                    val modelName = "ggml-tiny.en-q8_0.bin"
+                    val modelName = "ggml-small.en-tdrz.bin"
                     val modelPath = copyAssetToInternalStorage(modelName)
                     if (modelPath != null) {
                         Log.d("MeetingViewModel", "Initializing Whisper with model: $modelPath")
@@ -201,8 +206,8 @@ class MeetingViewModel(
                         val analysisChunkMs = 200L
                         val analysisChunkSamples = (16000 * analysisChunkMs / 1000).toInt()
                         val silenceThreshold = 0.005f
-                        val silenceCutMs = 500L
-                        val maxPhraseSamples = 16000 * 25 // safety cap: force a cut before a run-on monologue outgrows Whisper's ~30s context
+                        val silenceCutMs = 5000L
+                        val maxPhraseSamples = 16000 * 30 // 30s is the sweet spot for Whisper context
 
                         val analysisBuffer = mutableListOf<Float>()
                         val phraseBuffer = mutableListOf<Float>()
@@ -366,9 +371,14 @@ class MeetingViewModel(
             
             val duration = ((System.currentTimeMillis() - startTime) / 1000).toInt()
             currentMeetingId?.let { id ->
+                // Ensure all transcript entries are fully saved before summarizing
+                val finalEntries = withContext(Dispatchers.IO) {
+                    repository.getTranscript(id).first()
+                }
+                
                 repository.getMeetingById(id)?.let { currentMeeting ->
-                    val fullTranscript = transcript.value.joinToString("\n") { "${it.speakerLabel}: ${it.text}" }
-                    val preview = transcript.value.take(3).joinToString(" ") { it.text }
+                    val fullTranscript = finalEntries.joinToString("\n") { "${it.speakerLabel}: ${it.text}" }
+                    val preview = finalEntries.take(3).joinToString(" ") { it.text }
 
                     _summarizingMeetingId.value = id
                     val summary = when (val result = summaryService.generateSummary(fullTranscript)) {

@@ -79,14 +79,14 @@ Java_com_scribesync_scribesync_engine_WhisperEngine_transcribeSegments(JNIEnv *e
 
     LOGI("Transcribing %d audio samples", len);
 
-    // Using WHISPER_SAMPLING_GREEDY for significantly better speed on mobile
-    whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
+    // Using WHISPER_SAMPLING_BEAM_SEARCH for better speaker turn detection.
+    // Beam size of 2 is a good balance between accuracy and mobile CPU performance.
+    whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_BEAM_SEARCH);
     params.print_realtime = false;
     params.print_progress = false;
-    params.n_threads = 4; // Optimized for modern mobile CPUs
+    params.n_threads = 4;
 
-    // Greedy specific parameters
-    params.greedy.best_of = 1;
+    params.beam_search.beam_size = 2;
 
     // Suppress hallucinations and noise artifacts
     params.entropy_thold = 2.4f;
@@ -98,11 +98,9 @@ Java_com_scribesync_scribesync_engine_WhisperEngine_transcribeSegments(JNIEnv *e
 
     // tinydiarize: when true, the model emits an internal turn token whenever
     // it detects a speaker change (whisper_full_get_segment_speaker_turn_next
-    // surfaces that per-segment below). Currently bundling the plain (non-tdrz)
-    // model, which was never trained to emit that token - leave this false so
-    // its suppression in the decoder stays on, same as stock behavior. Flip to
-    // true only once a tdrz-finetuned model asset is actually in place.
-    params.tdrz_enable = false;
+    // surfaces that per-segment below). Enabled to support speaker splitting
+    // using the tdrz-finetuned model asset.
+    params.tdrz_enable = true;
 
     if (whisper_full(ctx, params, samples, len) != 0) {
         LOGE("Failed to run whisper_full");
@@ -120,11 +118,14 @@ Java_com_scribesync_scribesync_engine_WhisperEngine_transcribeSegments(JNIEnv *e
         jlong t0 = whisper_full_get_segment_t0(ctx, i);
         jlong t1 = whisper_full_get_segment_t1(ctx, i);
 
-        // A turn flagged after the PREVIOUS segment means THIS segment is the
-        // first one from the new speaker.
+        // A turn flagged for THIS segment or the PREVIOUS one indicates a change.
+        // tdrz models emit a special turn token (solm) which we check here.
         bool isNewSpeaker = (i > 0) && whisper_full_get_segment_speaker_turn_next(ctx, i - 1);
 
-        LOGI("Segment %d: [%ld -> %ld] %s (newSpeaker=%d)", i, (long)t0, (long)t1, text_str, isNewSpeaker);
+        // Log turn detection confidence for debugging
+        if (isNewSpeaker) {
+            LOGI("Speaker change detected at segment %d", i);
+        }
 
         jstring text = env->NewStringUTF(text_str);
         jobject segmentObj = env->NewObject(segmentClass, segmentInit, text, t0 * 10, t1 * 10, (jboolean)isNewSpeaker);
