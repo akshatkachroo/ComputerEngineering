@@ -327,25 +327,8 @@ class MeetingViewModel(
                 }
                 
                 repository.getMeetingById(id)?.let { currentMeeting ->
-                    var fullTranscript = finalEntries.joinToString("\n") { "${it.speakerLabel}: ${it.text}" }
-                    
-                    if (fullTranscript.isBlank()) {
-                        val demoEntries = listOf(
-                            TranscriptEntry(meetingId = id, speakerLabel = "Speaker 1", text = "Thanks for joining everyone. We need to finalize the navigation for the calendar view.", timestampMs = 1000),
-                            TranscriptEntry(meetingId = id, speakerLabel = "Speaker 2", text = "I agree. I'll take care of the icon design by tomorrow.", timestampMs = 5000),
-                            TranscriptEntry(meetingId = id, speakerLabel = "Speaker 1", text = "Great. Can you also send the updated budget proposal to Sarah by Friday?", timestampMs = 12000),
-                            TranscriptEntry(meetingId = id, speakerLabel = "Speaker 2", text = "Yes, we should review the competitor analysis doc as well.", timestampMs = 18000),
-                            TranscriptEntry(meetingId = id, speakerLabel = "Speaker 1", text = "Let's follow up with the design team next week.", timestampMs = 25000)
-                        )
-                        demoEntries.forEach { repository.saveTranscriptEntry(it) }
-                        fullTranscript = demoEntries.joinToString("\n") { "${it.speakerLabel}: ${it.text}" }
-                    }
-
-                    val preview = if (finalEntries.isNotEmpty()) {
-                        finalEntries.take(3).joinToString(" ") { it.text }
-                    } else {
-                        "Product Sync Demo"
-                    }
+                    val fullTranscript = finalEntries.joinToString("\n") { "${it.speakerLabel}: ${it.text}" }
+                    val preview = finalEntries.take(3).joinToString(" ") { it.text }
 
                     _summarizingMeetingId.value = id
                     val summary = when (val result = summaryService.generateSummary(fullTranscript)) {
@@ -357,10 +340,9 @@ class MeetingViewModel(
                     val extractedActionItems = summaryService.extractActionItems(fullTranscript)
 
                     repository.updateMeeting(currentMeeting.copy(
-                        durationSeconds = if (finalEntries.isEmpty()) 1440 else duration, 
+                        durationSeconds = duration, 
                         transcriptPreview = preview,
                         summary = summary,
-                        tags = if (finalEntries.isEmpty()) listOf("Product", "Mobile", "Q4") else emptyList(),
                         latitude = currentMeeting.latitude ?: lastLocation?.first,
                         longitude = currentMeeting.longitude ?: lastLocation?.second,
                         isSynced = false
@@ -434,33 +416,6 @@ class MeetingViewModel(
                     isConfirmed = true
                 )
             )
-        }
-    }
-
-    fun injectFakeTranscriptLive() {
-        val meetingId = currentMeetingId ?: return
-        val currentSize = _transcript.value.size
-        val fakeTexts = listOf(
-            "Hello, let's test the live transcription.",
-            "I am currently speaking into the microphone.",
-            "We should definitely add a calendar view to the app.",
-            "I'll finish the design by Friday.",
-            "Can you review the code tomorrow?"
-        )
-        val text = fakeTexts.getOrElse(currentSize % fakeTexts.size) { "Testing..." }
-        val speaker = if (currentSize % 2 == 0) "Speaker 1" else "Speaker 2"
-        
-        val newEntry = TranscriptEntry(
-            meetingId = meetingId,
-            speakerLabel = speaker,
-            text = text,
-            timestampMs = System.currentTimeMillis() - startTime,
-            isSynced = false
-        )
-        
-        viewModelScope.launch {
-            _transcript.value = _transcript.value + newEntry
-            repository.saveTranscriptEntry(newEntry)
         }
     }
 
