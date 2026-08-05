@@ -122,8 +122,9 @@ Java_com_scribesync_scribesync_engine_WhisperEngine_transcribeSegments(JNIEnv *e
 
         // A turn flagged for THIS segment or the PREVIOUS one indicates a change.
         // tdrz models emit a special turn token (solm) which we check here.
-        bool isNewSpeaker = whisper_full_get_segment_speaker_turn_next(ctx, i) ||
-                           (i > 0 && whisper_full_get_segment_speaker_turn_next(ctx, i - 1));
+        // Ignore turns on the very first segment of a chunk to avoid Speaker 2 starts.
+        bool isNewSpeaker = (i > 0) && (whisper_full_get_segment_speaker_turn_next(ctx, i) ||
+                                         whisper_full_get_segment_speaker_turn_next(ctx, i - 1));
 
         // Log turn detection confidence for debugging
         if (isNewSpeaker) {

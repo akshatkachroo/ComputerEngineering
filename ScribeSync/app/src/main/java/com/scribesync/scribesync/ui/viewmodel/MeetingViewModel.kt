@@ -273,7 +273,11 @@ class MeetingViewModel(
     private suspend fun processSegments(meetingId: String, segments: List<WhisperEngine.Segment>, baseTimestampMs: Long) {
         val entries = mutableListOf<TranscriptEntry>()
         for (segment in segments) {
-            if (segment.isNewSpeaker) currentSpeakerNumber++
+            // Only increment if we already have some transcript content, 
+            // otherwise the very first speaker would become Speaker 2.
+            if (segment.isNewSpeaker && _transcript.value.isNotEmpty()) {
+                currentSpeakerNumber++
+            }
             
             val text = segment.text.trim()
             if (text.isEmpty()) continue
@@ -331,54 +335,8 @@ class MeetingViewModel(
                 repository.getMeetingById(id)?.let { currentMeeting ->
                     _summarizingMeetingId.value = id
 
-                    // 1. Split merged turns for very long entries
-                    val entriesToSplit = finalEntries.filter { it.text.length > 500 }
-                    for (entry in entriesToSplit) {
-                        val splitParts = summaryService.splitMergedTurns(entry.text)
-                        if (splitParts.size > 1) {
-                            withContext(Dispatchers.IO) {
-                                repository.deleteTranscriptEntry(entry.id)
-                                splitParts.forEachIndexed { index, partText ->
-                                    val newLabel = if (index == 0) entry.speakerLabel else "Speaker ${currentSpeakerNumber++}"
-                                    Log.d("MeetingViewModel", "Split block into two: $newLabel")
-                                    repository.saveTranscriptEntry(
-                                        entry.copy(
-                                            id = 0,
-                                            text = partText,
-                                            timestampMs = entry.timestampMs + (index * 1000), // Approximate offset
-                                            speakerLabel = newLabel
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // 2. Get fresh entries for fingerprinting
-                    val freshEntries = withContext(Dispatchers.IO) {
-                        repository.getTranscript(id).first()
-                    }
-                    val initialTranscript = freshEntries.joinToString("\n") { "${it.speakerLabel}: ${it.text}" }
-                    
-                    // 3. Resolve speakers using fingerprints
-                    val speakerMapping = summaryService.resolveSpeakerMapping(initialTranscript)
-                    if (speakerMapping.isNotEmpty()) {
-                        withContext(Dispatchers.IO) {
-                            repository.updateSpeakerLabels(id, speakerMapping)
-                        }
-                    }
-
-                    // 4. Normalize speaker numbers (Speaker 1, 2, 3...)
-                    withContext(Dispatchers.IO) {
-                        repository.normalizeSpeakerLabels(id)
-                    }
-
-                    // 5. Get final transcript for summary and preview
-                    val updatedEntries = withContext(Dispatchers.IO) {
-                        repository.getTranscript(id).first()
-                    }
-                    val fullTranscript = updatedEntries.joinToString("\n") { "${it.speakerLabel}: ${it.text}" }
-                    val preview = updatedEntries.take(3).joinToString(" ") { it.text }
+                    val fullTranscript = finalEntries.joinToString("\n") { "${it.speakerLabel}: ${it.text}" }
+                    val preview = finalEntries.take(3).joinToString(" ") { it.text }
 
                     val summary = when (val result = summaryService.generateSummary(fullTranscript)) {
                         is SummaryService.SummaryResult.Success -> result.text
