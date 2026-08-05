@@ -299,6 +299,7 @@ class MeetingViewModel(
 
     fun stopMeeting() {
         _uiState.value = MeetingUiState.ProcessingSummary
+        val recordingDuration = ((System.currentTimeMillis() - startTime) / 1000).toInt()
         
         viewModelScope.launch {
             val intent = Intent(getApplication(), AudioCaptureService::class.java)
@@ -322,7 +323,6 @@ class MeetingViewModel(
                 }
             }
             
-            val duration = ((System.currentTimeMillis() - startTime) / 1000).toInt()
             currentMeetingId?.let { id ->
                 val finalEntries = withContext(Dispatchers.IO) {
                     repository.getTranscript(id).first()
@@ -339,12 +339,14 @@ class MeetingViewModel(
                             withContext(Dispatchers.IO) {
                                 repository.deleteTranscriptEntry(entry.id)
                                 splitParts.forEachIndexed { index, partText ->
+                                    val newLabel = if (index == 0) entry.speakerLabel else "Speaker ${currentSpeakerNumber++}"
+                                    Log.d("MeetingViewModel", "Split block into two: $newLabel")
                                     repository.saveTranscriptEntry(
                                         entry.copy(
                                             id = 0,
                                             text = partText,
                                             timestampMs = entry.timestampMs + (index * 1000), // Approximate offset
-                                            speakerLabel = if (index == 0) entry.speakerLabel else "Speaker ${currentSpeakerNumber++}"
+                                            speakerLabel = newLabel
                                         )
                                     )
                                 }
@@ -366,7 +368,12 @@ class MeetingViewModel(
                         }
                     }
 
-                    // 4. Get final transcript for summary and preview
+                    // 4. Normalize speaker numbers (Speaker 1, 2, 3...)
+                    withContext(Dispatchers.IO) {
+                        repository.normalizeSpeakerLabels(id)
+                    }
+
+                    // 5. Get final transcript for summary and preview
                     val updatedEntries = withContext(Dispatchers.IO) {
                         repository.getTranscript(id).first()
                     }
@@ -382,7 +389,7 @@ class MeetingViewModel(
                     val extractedActionItems = summaryService.extractActionItems(fullTranscript)
 
                     repository.updateMeeting(currentMeeting.copy(
-                        durationSeconds = duration, 
+                        durationSeconds = recordingDuration,
                         transcriptPreview = preview,
                         summary = summary,
                         latitude = currentMeeting.latitude ?: lastLocation?.first,

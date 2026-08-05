@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.tasks.await
 
@@ -84,6 +85,20 @@ class TranscriptRepository(
     suspend fun updateSpeakerLabels(meetingId: String, mapping: Map<String, String>) {
         mapping.forEach { (old, new) ->
             meetingDao.updateSpeakerLabel(meetingId, old, new)
+        }
+    }
+
+    suspend fun normalizeSpeakerLabels(meetingId: String) {
+        val entries = meetingDao.getTranscriptForMeeting(meetingId).first()
+        val uniqueSpeakers = entries.map { it.speakerLabel }.distinct()
+        val normalizationMap = uniqueSpeakers.mapIndexed { index: Int, oldLabel: String ->
+            oldLabel to "Speaker ${index + 1}"
+        }.toMap()
+        
+        normalizationMap.forEach { (old: String, new: String) ->
+            if (old != new) {
+                meetingDao.updateSpeakerLabel(meetingId, old, new)
+            }
         }
     }
 

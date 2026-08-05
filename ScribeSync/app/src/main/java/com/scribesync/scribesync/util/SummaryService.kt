@@ -44,23 +44,30 @@ class SummaryService(
             You are a conversation analyzer. The following are "voice fingerprints" from a meeting, showing sample sentences for each speaker label (Speaker 1, Speaker 2, etc.).
             
             Determine which labels refer to the same person based on speech patterns, vocabulary, and context.
+            
+            CRITICAL RULES:
+            1. DO NOT merge speakers if their speech patterns, tone, or content differ significantly.
+            2. Only merge if you are 90% certain they are the same person.
+            3. When in doubt, KEEP THEM SEPARATE.
+            4. If the conversation is a back-and-forth between two people, ensure they stay as separate labels.
+            
             Provide the result as a simple list of mappings, one per line, like this:
             Speaker 3 -> Speaker 1
             Speaker 4 -> Speaker 2
             
             Only include speakers that should be merged. If a speaker is unique, do not list it.
-            Do not include any other text in your response.
+            Do not include any other text or explanation in your response.
         """.trimIndent()
 
         private val TURN_SPLIT_PROMPT = """
-            The following text was attributed to one speaker, but it might contain multiple people speaking. 
-            If you detect a change in speaker based on context or conversational flow, split the text and label the parts as "PART A" and "PART B".
+            The following text was attributed to one speaker, but it contains a back-and-forth conversation between TWO different people. 
+            Identify the point where the speaker changes based on conversational context and split the text into "PART A" and "PART B".
             
             Format your response exactly like this:
             [PART A]: text from the first person
             [PART B]: text from the second person
             
-            If it's truly just one person, return the original text without labels.
+            IMPORTANT: Each part must belong to a DIFFERENT person. If the entire text is truly just one person talking, return the original text without labels.
         """.trimIndent()
     }
 
