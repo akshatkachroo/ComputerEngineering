@@ -79,6 +79,12 @@ class TranscriptRepository(
         }
     }
 
+    suspend fun updateSpeakerLabels(meetingId: String, mapping: Map<String, String>) {
+        mapping.forEach { (old, new) ->
+            meetingDao.updateSpeakerLabel(meetingId, old, new)
+        }
+    }
+
     // Action Items
     fun getActionItems(meetingId: String): Flow<List<ActionItem>> = 
         meetingDao.getActionItemsForMeeting(meetingId).flowOn(Dispatchers.IO)

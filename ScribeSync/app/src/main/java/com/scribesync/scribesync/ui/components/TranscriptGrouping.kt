@@ -11,10 +11,16 @@ fun groupConsecutiveBySpeaker(entries: List<TranscriptEntry>): List<List<Transcr
     if (entries.isEmpty()) return emptyList()
 
     val groups = mutableListOf<MutableList<TranscriptEntry>>()
+    val MAX_GAP_MS = 10000L
     for (entry in entries) {
-        val currentGroup = groups.lastOrNull()
-        if (currentGroup != null && currentGroup.last().speakerLabel == entry.speakerLabel) {
-            currentGroup.add(entry)
+        val lastGroup = groups.lastOrNull()
+        val lastEntry = lastGroup?.lastOrNull()
+
+        val sameSpeaker = lastEntry != null && lastEntry.speakerLabel == entry.speakerLabel
+        val smallGap = lastEntry != null && (entry.timestampMs - lastEntry.timestampMs) < MAX_GAP_MS
+
+        if (sameSpeaker && smallGap) {
+            lastGroup!!.add(entry)
         } else {
             groups.add(mutableListOf(entry))
         }

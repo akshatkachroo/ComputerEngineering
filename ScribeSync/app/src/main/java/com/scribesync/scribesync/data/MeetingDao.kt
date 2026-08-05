@@ -46,6 +46,9 @@ interface MeetingDao {
     @Query("SELECT * FROM meetings WHERE tags LIKE '%' || :tag || '%'")
     fun getMeetingsByTag(tag: String): Flow<List<Meeting>>
 
+    @Query("UPDATE transcript_entries SET speakerLabel = :newLabel WHERE meetingId = :meetingId AND speakerLabel = :oldLabel")
+    suspend fun updateSpeakerLabel(meetingId: String, oldLabel: String, newLabel: String)
+
     // Action Items
     @Query("SELECT * FROM action_items WHERE meetingId = :meetingId ORDER BY createdAt ASC")
     fun getActionItemsForMeeting(meetingId: String): Flow<List<ActionItem>>

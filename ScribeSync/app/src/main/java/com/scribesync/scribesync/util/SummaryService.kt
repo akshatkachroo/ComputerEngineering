@@ -26,6 +26,7 @@ class SummaryService(
     sealed class Phase {
         object Idle : Phase()
         object LoadingModel : Phase()
+        object ResolvingSpeakers : Phase()
         object Generating : Phase()
     }
 
@@ -38,6 +39,19 @@ class SummaryService(
         private const val CLIP_TAIL_CHARS = 3400
 
         private const val SYSTEM_PROMPT = """You summarize meeting transcripts..."""
+
+        private val SPEAKER_RESOLVE_PROMPT = """
+            You are a conversation analyzer. The following transcript has speaker turns tagged as Speaker 1, Speaker 2, Speaker 3, etc. 
+            Analyze the flow of conversation and determine which labels refer to the same person.
+            Focus on speech patterns, context, and how people address each other.
+            
+            Provide the result as a simple list of mappings, one per line, like this:
+            Speaker 3 -> Speaker 1
+            Speaker 4 -> Speaker 2
+            
+            Only include speakers that should be merged. If a speaker is unique, do not list it.
+            Do not include any other text in your response.
+        """.trimIndent()
     }
 
     private val _phase = MutableStateFlow<Phase>(Phase.Idle)
@@ -110,6 +124,48 @@ class SummaryService(
         if (daysUntil <= 0) daysUntil += 7
         calendar.add(Calendar.DAY_OF_YEAR, daysUntil)
         return calendar.time
+    }
+
+    suspend fun resolveSpeakerMapping(transcript: String): Map<String, String> {
+        if (transcript.isBlank()) return emptyMap()
+
+        val model = modelManager.ensureModel().getOrNull() ?: return emptyMap()
+
+        return try {
+            withContext(Dispatchers.Default) {
+                _phase.value = Phase.LoadingModel
+                val contextPtr = llamaEngine.initContext(model.absolutePath)
+                if (contextPtr == 0L) return@withContext emptyMap<String, String>()
+                try {
+                    _phase.value = Phase.ResolvingSpeakers
+                    // Only use a portion of the transcript if it's too long, but enough to see patterns
+                    val sampleText = if (transcript.length > 4000) transcript.take(4000) else transcript
+                    val output = llamaEngine.generate(contextPtr, SPEAKER_RESOLVE_PROMPT, "Transcript:\n\n$sampleText", 256)?.trim()
+                    
+                    if (output.isNullOrBlank()) return@withContext emptyMap<String, String>()
+                    
+                    Log.d(TAG, "Speaker mapping output: $output")
+                    
+                    val mapping = mutableMapOf<String, String>()
+                    output.lines().forEach { line ->
+                        if (line.contains("->")) {
+                            val parts = line.split("->").map { it.trim() }
+                            if (parts.size == 2 && parts[0].startsWith("Speaker") && parts[1].startsWith("Speaker")) {
+                                mapping[parts[0]] = parts[1]
+                            }
+                        }
+                    }
+                    mapping
+                } finally {
+                    llamaEngine.freeContext(contextPtr)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error resolving speakers", e)
+            emptyMap()
+        } finally {
+            _phase.value = Phase.Idle
+        }
     }
 
     suspend fun generateSummary(transcript: String): SummaryResult {

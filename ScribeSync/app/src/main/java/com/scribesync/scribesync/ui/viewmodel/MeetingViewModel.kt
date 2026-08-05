@@ -163,7 +163,7 @@ class MeetingViewModel(
 
             launch(Dispatchers.Default) {
                 if (nativeContextPtr == 0L) {
-                    val modelName = "ggml-tiny.en-q8_0.bin"
+                    val modelName = "ggml-small.en-tdrz.bin"
                     val modelPath = copyAssetToInternalStorage(modelName)
                     if (modelPath != null) {
                         whisperMutex.withLock {
@@ -177,8 +177,8 @@ class MeetingViewModel(
                         val analysisChunkMs = 200L
                         val analysisChunkSamples = (16000 * analysisChunkMs / 1000).toInt()
                         val silenceThreshold = 0.005f
-                        val silenceCutMs = 5000L
-                        val maxPhraseSamples = 16000 * 30
+                        val silenceCutMs = 2000L
+                        val maxPhraseSamples = 16000 * 15
 
                         val analysisBuffer = mutableListOf<Float>()
                         val phraseBuffer = mutableListOf<Float>()
@@ -273,9 +273,11 @@ class MeetingViewModel(
     private suspend fun processSegments(meetingId: String, segments: List<WhisperEngine.Segment>, baseTimestampMs: Long) {
         val entries = mutableListOf<TranscriptEntry>()
         for (segment in segments) {
+            if (segment.isNewSpeaker) currentSpeakerNumber++
+            
             val text = segment.text.trim()
             if (text.isEmpty()) continue
-            if (segment.isNewSpeaker) currentSpeakerNumber++
+
             entries.add(
                 TranscriptEntry(
                     meetingId = meetingId,
@@ -327,10 +329,25 @@ class MeetingViewModel(
                 }
                 
                 repository.getMeetingById(id)?.let { currentMeeting ->
-                    val fullTranscript = finalEntries.joinToString("\n") { "${it.speakerLabel}: ${it.text}" }
-                    val preview = finalEntries.take(3).joinToString(" ") { it.text }
-
+                    val initialTranscript = finalEntries.joinToString("\n") { "${it.speakerLabel}: ${it.text}" }
+                    
                     _summarizingMeetingId.value = id
+                    
+                    // 1. Resolve speakers
+                    val speakerMapping = summaryService.resolveSpeakerMapping(initialTranscript)
+                    if (speakerMapping.isNotEmpty()) {
+                        withContext(Dispatchers.IO) {
+                            repository.updateSpeakerLabels(id, speakerMapping)
+                        }
+                    }
+
+                    // 2. Get updated transcript for summary and preview
+                    val updatedEntries = withContext(Dispatchers.IO) {
+                        repository.getTranscript(id).first()
+                    }
+                    val fullTranscript = updatedEntries.joinToString("\n") { "${it.speakerLabel}: ${it.text}" }
+                    val preview = updatedEntries.take(3).joinToString(" ") { it.text }
+
                     val summary = when (val result = summaryService.generateSummary(fullTranscript)) {
                         is SummaryService.SummaryResult.Success -> result.text
                         is SummaryService.SummaryResult.EmptyTranscript -> "No speech captured."
