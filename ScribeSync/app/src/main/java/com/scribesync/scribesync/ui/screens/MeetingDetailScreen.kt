@@ -248,8 +248,13 @@ fun MeetingDetailScreen(
             if (transcript.isEmpty()) {
                 item { Box(Modifier.fillMaxWidth().padding(vertical = 64.dp), Alignment.Center) { Text("No transcript available", color = MaterialTheme.colorScheme.outline) } }
             } else {
-                items(groupedTranscript) { group ->
-                    TranscriptDetailItem(group = group)
+                items(groupedTranscript.size) { index ->
+                    val group = groupedTranscript[index]
+                    val prevGroup = if (index > 0) groupedTranscript[index - 1] else null
+                    TranscriptDetailItem(
+                        group = group,
+                        showSpeaker = prevGroup == null || prevGroup.last().speakerLabel != group.first().speakerLabel
+                    )
                 }
             }
         }
@@ -313,7 +318,7 @@ private fun SummarySection(summary: String) {
 }
 
 @Composable
-private fun TranscriptDetailItem(group: List<TranscriptEntry>) {
+private fun TranscriptDetailItem(group: List<TranscriptEntry>, showSpeaker: Boolean) {
     val firstEntry = group.first()
     val speakerColor = when (firstEntry.speakerLabel) {
         "Speaker 1" -> MaterialTheme.colorScheme.primary
@@ -321,14 +326,37 @@ private fun TranscriptDetailItem(group: List<TranscriptEntry>) {
         else -> MaterialTheme.colorScheme.secondary
     }
     Column(modifier = Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(shape = MaterialTheme.shapes.extraSmall, color = speakerColor.copy(alpha = 0.15f) ) {
-                Text(firstEntry.speakerLabel, style = MaterialTheme.typography.labelSmall, color = speakerColor, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+        if (showSpeaker) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = MaterialTheme.shapes.extraSmall,
+                    color = speakerColor.copy(alpha = 0.15f)
+                ) {
+                    Text(
+                        firstEntry.speakerLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = speakerColor,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    formatTimestampDetail(firstEntry.timestampMs),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
             }
-            Spacer(Modifier.width(8.dp))
-            Text(formatTimestampDetail(firstEntry.timestampMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+            Spacer(Modifier.height(4.dp))
+        } else {
+            // Smaller indicator for same speaker after a gap
+            Text(
+                formatTimestampDetail(firstEntry.timestampMs),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
         }
-        Spacer(Modifier.height(4.dp))
         group.forEach { entry -> Text(entry.text, style = MaterialTheme.typography.bodyMedium) }
     }
 }

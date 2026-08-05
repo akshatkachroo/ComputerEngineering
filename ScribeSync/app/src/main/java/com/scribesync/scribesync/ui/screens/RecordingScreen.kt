@@ -170,8 +170,13 @@ fun RecordingScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    items(groupedEntries) { group ->
-                        TranscriptEntryItem(group = group)
+                    items(groupedEntries.size) { index ->
+                        val group = groupedEntries[index]
+                        val prevGroup = if (index > 0) groupedEntries[index - 1] else null
+                        TranscriptEntryItem(
+                            group = group,
+                            showSpeaker = prevGroup == null || prevGroup.last().speakerLabel != group.first().speakerLabel
+                        )
                     }
                 }
             }
@@ -302,7 +307,7 @@ private fun PulsingMicIndicator(isRecording: Boolean) {
 }
 
 @Composable
-private fun TranscriptEntryItem(group: List<TranscriptEntry>) {
+private fun TranscriptEntryItem(group: List<TranscriptEntry>, showSpeaker: Boolean) {
     val speakerLabel = group.first().speakerLabel
     val speakerColor = when (speakerLabel) {
         "Speaker 1" -> MaterialTheme.colorScheme.primary
@@ -314,18 +319,23 @@ private fun TranscriptEntryItem(group: List<TranscriptEntry>) {
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top
     ) {
-        Surface(
-            shape = MaterialTheme.shapes.extraSmall,
-            color = speakerColor.copy(alpha = 0.15f),
-            modifier = Modifier.padding(top = 2.dp)
-        ) {
-            Text(
-                speakerLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = speakerColor,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-            )
+        if (showSpeaker) {
+            Surface(
+                shape = MaterialTheme.shapes.extraSmall,
+                color = speakerColor.copy(alpha = 0.15f),
+                modifier = Modifier.padding(top = 2.dp)
+            ) {
+                Text(
+                    speakerLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = speakerColor,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+            }
+        } else {
+            // Placeholder to keep alignment
+            Spacer(Modifier.width(60.dp))
         }
         Spacer(Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {

@@ -41,16 +41,26 @@ class SummaryService(
         private const val SYSTEM_PROMPT = """You summarize meeting transcripts..."""
 
         private val SPEAKER_RESOLVE_PROMPT = """
-            You are a conversation analyzer. The following transcript has speaker turns tagged as Speaker 1, Speaker 2, Speaker 3, etc. 
-            Analyze the flow of conversation and determine which labels refer to the same person.
-            Focus on speech patterns, context, and how people address each other.
+            You are a conversation analyzer. The following are "voice fingerprints" from a meeting, showing sample sentences for each speaker label (Speaker 1, Speaker 2, etc.).
             
+            Determine which labels refer to the same person based on speech patterns, vocabulary, and context.
             Provide the result as a simple list of mappings, one per line, like this:
             Speaker 3 -> Speaker 1
             Speaker 4 -> Speaker 2
             
             Only include speakers that should be merged. If a speaker is unique, do not list it.
             Do not include any other text in your response.
+        """.trimIndent()
+
+        private val TURN_SPLIT_PROMPT = """
+            The following text was attributed to one speaker, but it might contain multiple people speaking. 
+            If you detect a change in speaker based on context or conversational flow, split the text and label the parts as "PART A" and "PART B".
+            
+            Format your response exactly like this:
+            [PART A]: text from the first person
+            [PART B]: text from the second person
+            
+            If it's truly just one person, return the original text without labels.
         """.trimIndent()
     }
 
@@ -131,6 +141,25 @@ class SummaryService(
 
         val model = modelManager.ensureModel().getOrNull() ?: return emptyMap()
 
+        // 1. Generate fingerprints: collect samples for every speaker label found
+        val fingerprints = mutableMapOf<String, MutableList<String>>()
+        transcript.lines().forEach { line ->
+            if (line.contains(":")) {
+                val label = line.substringBefore(":").trim()
+                val text = line.substringAfter(":").trim()
+                if (label.startsWith("Speaker") && text.length > 10) {
+                    val list = fingerprints.getOrPut(label) { mutableListOf() }
+                    if (list.size < 3) list.add(text)
+                }
+            }
+        }
+
+        if (fingerprints.isEmpty()) return emptyMap()
+
+        val fingerprintText = fingerprints.entries.joinToString("\n") { (label, samples) ->
+            "[$label]: \"${samples.joinToString(" ") { it.take(150) }}\""
+        }
+
         return try {
             withContext(Dispatchers.Default) {
                 _phase.value = Phase.LoadingModel
@@ -138,9 +167,7 @@ class SummaryService(
                 if (contextPtr == 0L) return@withContext emptyMap<String, String>()
                 try {
                     _phase.value = Phase.ResolvingSpeakers
-                    // Only use a portion of the transcript if it's too long, but enough to see patterns
-                    val sampleText = if (transcript.length > 4000) transcript.take(4000) else transcript
-                    val output = llamaEngine.generate(contextPtr, SPEAKER_RESOLVE_PROMPT, "Transcript:\n\n$sampleText", 256)?.trim()
+                    val output = llamaEngine.generate(contextPtr, SPEAKER_RESOLVE_PROMPT, "Fingerprints:\n\n$fingerprintText", 256)?.trim()
                     
                     if (output.isNullOrBlank()) return@withContext emptyMap<String, String>()
                     
@@ -163,6 +190,38 @@ class SummaryService(
         } catch (e: Exception) {
             Log.e(TAG, "Error resolving speakers", e)
             emptyMap()
+        } finally {
+            _phase.value = Phase.Idle
+        }
+    }
+
+    suspend fun splitMergedTurns(text: String): List<String> {
+        if (text.length < 300) return listOf(text) // Too short to be worth splitting
+
+        val model = modelManager.ensureModel().getOrNull() ?: return listOf(text)
+
+        return try {
+            withContext(Dispatchers.Default) {
+                _phase.value = Phase.LoadingModel
+                val contextPtr = llamaEngine.initContext(model.absolutePath)
+                if (contextPtr == 0L) return@withContext listOf(text)
+                try {
+                    _phase.value = Phase.Generating
+                    val output = llamaEngine.generate(contextPtr, TURN_SPLIT_PROMPT, "Text:\n\n$text", 512)?.trim()
+                    
+                    if (output.isNullOrBlank() || !output.contains("[PART A]")) return@withContext listOf(text)
+                    
+                    val parts = mutableListOf<String>()
+                    if (output.contains("[PART A]:")) parts.add(output.substringAfter("[PART A]:").substringBefore("[PART B]:").trim())
+                    if (output.contains("[PART B]:")) parts.add(output.substringAfter("[PART B]:").trim())
+                    
+                    if (parts.isEmpty()) listOf(text) else parts
+                } finally {
+                    llamaEngine.freeContext(contextPtr)
+                }
+            }
+        } catch (e: Exception) {
+            listOf(text)
         } finally {
             _phase.value = Phase.Idle
         }

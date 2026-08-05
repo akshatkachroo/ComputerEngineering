@@ -31,6 +31,9 @@ interface MeetingDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTranscriptEntry(entry: TranscriptEntry)
 
+    @Query("DELETE FROM transcript_entries WHERE id = :id")
+    suspend fun deleteTranscriptEntry(id: Long)
+
     @Query("SELECT * FROM transcript_entries WHERE isSynced = 0")
     suspend fun getUnsyncedEntries(): List<TranscriptEntry>
 

@@ -79,6 +79,8 @@ class TranscriptRepository(
         }
     }
 
+    suspend fun deleteTranscriptEntry(id: Long) = meetingDao.deleteTranscriptEntry(id)
+
     suspend fun updateSpeakerLabels(meetingId: String, mapping: Map<String, String>) {
         mapping.forEach { (old, new) ->
             meetingDao.updateSpeakerLabel(meetingId, old, new)

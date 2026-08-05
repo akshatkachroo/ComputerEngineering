@@ -329,11 +329,36 @@ class MeetingViewModel(
                 }
                 
                 repository.getMeetingById(id)?.let { currentMeeting ->
-                    val initialTranscript = finalEntries.joinToString("\n") { "${it.speakerLabel}: ${it.text}" }
-                    
                     _summarizingMeetingId.value = id
+
+                    // 1. Split merged turns for very long entries
+                    val entriesToSplit = finalEntries.filter { it.text.length > 500 }
+                    for (entry in entriesToSplit) {
+                        val splitParts = summaryService.splitMergedTurns(entry.text)
+                        if (splitParts.size > 1) {
+                            withContext(Dispatchers.IO) {
+                                repository.deleteTranscriptEntry(entry.id)
+                                splitParts.forEachIndexed { index, partText ->
+                                    repository.saveTranscriptEntry(
+                                        entry.copy(
+                                            id = 0,
+                                            text = partText,
+                                            timestampMs = entry.timestampMs + (index * 1000), // Approximate offset
+                                            speakerLabel = if (index == 0) entry.speakerLabel else "Speaker ${currentSpeakerNumber++}"
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Get fresh entries for fingerprinting
+                    val freshEntries = withContext(Dispatchers.IO) {
+                        repository.getTranscript(id).first()
+                    }
+                    val initialTranscript = freshEntries.joinToString("\n") { "${it.speakerLabel}: ${it.text}" }
                     
-                    // 1. Resolve speakers
+                    // 3. Resolve speakers using fingerprints
                     val speakerMapping = summaryService.resolveSpeakerMapping(initialTranscript)
                     if (speakerMapping.isNotEmpty()) {
                         withContext(Dispatchers.IO) {
@@ -341,7 +366,7 @@ class MeetingViewModel(
                         }
                     }
 
-                    // 2. Get updated transcript for summary and preview
+                    // 4. Get final transcript for summary and preview
                     val updatedEntries = withContext(Dispatchers.IO) {
                         repository.getTranscript(id).first()
                     }
